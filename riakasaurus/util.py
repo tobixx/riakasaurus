@@ -1,6 +1,8 @@
 """
 .. module:: util.py
 
+--- NOTE: All of this is pretty much deprecated by the transport.HTTPTransport object
+
 """
 
 import urllib
@@ -9,6 +11,7 @@ import codecs
 from twisted.internet import defer
 from twisted.internet import reactor
 from zope.interface import implements
+from twisted import version as twisted_version
 from twisted.web import client
 from twisted.web.http import PotentialDataLoss
 from twisted.web.http_headers import Headers
@@ -17,46 +20,37 @@ from twisted.internet.protocol import Protocol
 from twisted.web._newclient import ResponseDone
 from StringIO import StringIO
 
-DEBUG=False
+if twisted_version.major >= 12:
+    Agent = client.Agent
+else:
+    class Agent(client.Agent):
+        """
+        client.Agent does not provide the ability to set a timeout.
+        This is an Agent with a timeout.
+        """
 
-# XXX pyOpenSSL is basically fucked in a whole host of distro's
-#     thanks to SSLv2 being summarily removed from libssl. 
-#     For the time being, to hell with SSL, it breaks everywhere
-#from twisted.internet.ssl import ClientContextFactory
-
-#class WebClientContextFactory(ClientContextFactory):
-#    def getContext(self, hostname, port):
-#        return ClientContextFactory.getContext(self)
-
-
-class Agent(client.Agent):
-    """
-    client.Agent does not provide the ability to set a timeout.
-    This is an Agent with a timeout.
-    """
-
-    def __init__(self, reactor,
-                       contextFactory=None,
-                       timeout=240):
-        self._reactor = reactor
-        self._contextFactory = contextFactory
-        self.timeout = timeout
+        def __init__(self, reactor,
+                           contextFactory=None,
+                           connectTimeout=240):
+            self._reactor = reactor
+            self._contextFactory = contextFactory
+            self.connectTimeout = connectTimeout
 
 
-    def _connect(self, scheme, host, port):
-        """ connect method with a timeout. """
+        def _connect(self, scheme, host, port):
+            """ connect method with a timeout. """
 
-        cc = client.ClientCreator(self._reactor, self._protocol)
-        if scheme == 'http':
-            d = cc.connectTCP(host, port, timeout=self.timeout)
-        elif scheme == 'https':
-            raise Exception('HTTPS not supported') 
-            #d = cc.connectSSL(host, port, self._wrapContextFactory(host, port),
-            #                  timeout=self.timeout)
-        else:
-            d = defer.fail(SchemeNotSupported(
-                    "Unsupported scheme: %r" % (scheme,)))
-        return d
+            cc = client.ClientCreator(self._reactor, self._protocol)
+            if scheme == 'http':
+                d = cc.connectTCP(host, port, timeout=self.connectTimeout)
+            elif scheme == 'https':
+                raise Exception('HTTPS not supported')
+                #d = cc.connectSSL(host, port, self._wrapContextFactory(host, port),
+                #                  timeout=self.timeout)
+            else:
+                d = defer.fail(SchemeNotSupported(
+                        "Unsupported scheme: %r" % (scheme,)))
+            return d
 
 class StringProducer(object):
     """
@@ -127,14 +121,6 @@ def getPageWithHeaders(contextFactory=None,
 
     url = str("http://%s:%d%s" % (host, port, path))
 
-    if DEBUG:
-        print "==========================="
-        print ">>uri: %s" % url
-        print ">>method: %s" % kwargs.get('method', None)
-        print ">>headers: %s" % kwargs.get('headers', None)
-        print ">>cookies: %s" % kwargs.get('cookies', None)
-        print ">>postdata: %s" % kwargs.get('postdata', None)
-
     if not "headers" in kwargs:
         kwargs["headers"] = {}
     else:
@@ -149,7 +135,7 @@ def getPageWithHeaders(contextFactory=None,
     else:
         body = None
 
-    d = Agent(reactor, timeout=timeout).request(kwargs["method"],
+    d = Agent(reactor, connectTimeout=timeout).request(kwargs["method"],
                                       url,
                                       Headers(kwargs["headers"]),
                                       body
