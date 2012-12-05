@@ -1,7 +1,9 @@
 from zope.interface import implements
 
+from twisted.protocols.basic import LineReceiver
+LineReceiver.MAX_LENGTH = 1024*1024*64
+
 from twisted.internet import defer, reactor, protocol
-from twisted.web.client import Agent
 from twisted.web.http_headers import Headers
 from twisted.web.iweb import IBodyProducer
 
@@ -15,6 +17,8 @@ from xml.etree import ElementTree
 
 # MD_ resources
 from riakasaurus.metadata import *
+from twisted.web.client import Agent
+
 
 from riakasaurus.riak_index_entry import RiakIndexEntry
 from riakasaurus.mapreduce import RiakLink
@@ -26,6 +30,7 @@ versions = {
     1.1: StrictVersion("1.1.0"),
     1.2: StrictVersion("1.2.0")
     }
+
 
 class FeatureDetection(object):
     _s_version = None
@@ -44,7 +49,7 @@ class FeatureDetection(object):
         Whether MapReduce requests can be submitted without phases.
         :rtype bool
         """
-        d = yield self.server_version() 
+        d = yield self.server_version()
         defer.returnValue(d >= versions[1.1])
 
     @defer.inlineCallbacks
@@ -55,7 +60,7 @@ class FeatureDetection(object):
 
         :rtype bool
         """
-        d = yield self.server_version() 
+        d = yield self.server_version()
         defer.returnValue(d >= versions[1.2])
 
     @defer.inlineCallbacks
@@ -64,7 +69,7 @@ class FeatureDetection(object):
         Whether search queries are supported over Protocol Buffers
         :rtype bool
         """
-        d = yield self.server_version() 
+        d = yield self.server_version()
         defer.returnValue(d >= versions[1.2])
 
     @defer.inlineCallbacks
@@ -74,7 +79,7 @@ class FeatureDetection(object):
         Protocol Buffers
         :rtype bool
         """
-        d = yield self.server_version() 
+        d = yield self.server_version()
         defer.returnValue(d >= versions[1])
 
     @defer.inlineCallbacks
@@ -84,7 +89,7 @@ class FeatureDetection(object):
         e.g. primary quorums, basic_quorum, notfound_ok
         :rtype bool
         """
-        d = yield self.server_version() 
+        d = yield self.server_version()
         defer.returnValue(d >= versions[1])
 
     @defer.inlineCallbacks
@@ -93,7 +98,7 @@ class FeatureDetection(object):
         Whether 'not found' responses might include vclocks
         :rtype bool
         """
-        d = yield self.server_version() 
+        d = yield self.server_version()
         defer.returnValue(d >= versions[1])
 
     @defer.inlineCallbacks
@@ -103,7 +108,7 @@ class FeatureDetection(object):
         supported over Protocol Buffers
         :rtype bool
         """
-        d = yield self.server_version() 
+        d = yield self.server_version()
         defer.returnValue(d >= versions[1])
 
     @defer.inlineCallbacks
@@ -116,7 +121,7 @@ class FeatureDetection(object):
 class BodyReceiver(protocol.Protocol):
     """ Simple buffering consumer for body objects """
     def __init__(self, finished):
-        self.finished = finished 
+        self.finished = finished
         self.buffer = StringIO()
 
     def dataReceived(self, buffer):
@@ -148,8 +153,11 @@ class StringProducer(object):
 
 class HTTPTransport(FeatureDetection):
     """ HTTP Transport for Riak """
-    def __init__(self, client):
-        self._prefix = client._prefix
+    def __init__(self, client, prefix=None):
+        if prefix:
+            self._prefix = prefix
+        else:
+            self._prefix = client._prefix
         self.host = client._host
         self.port = client._port
         self.client = client
@@ -160,7 +168,7 @@ class HTTPTransport(FeatureDetection):
             headers = {"http_code": response.code}
             for key, val in response.headers.getAllRawHeaders():
                 headers[key.lower()] = val[0]
-            
+
             return headers, body.read()
 
         if response.length:
@@ -176,9 +184,12 @@ class HTTPTransport(FeatureDetection):
         h = {}
         for k, v in headers.items():
             if not isinstance(v, list):
-                h[k] = [v]
+                h[k.lower()] = [v]
             else:
-                h[k] = v 
+                h[k.lower()] = v
+
+        if not 'content-type' in h.keys():
+            h['content-type'] = ['application/json']
 
         if body:
             bodyProducer = StringProducer(body)
@@ -228,14 +239,14 @@ class HTTPTransport(FeatureDetection):
     def get_keys(self, bucket):
         params = {'props' : 'True', 'keys' : 'true'}
         url = self.build_rest_path(bucket, params=params)
-        
+
 
         headers, encoded_props = yield self.http_request('GET', url)
 
         if headers['http_code'] == 200:
             props = self.decodeJson(encoded_props)
         else:
-            raise Exception('Error getting bucket properties.') 
+            raise Exception('Error getting bucket properties.')
 
         defer.returnValue(props['keys'])
 
@@ -243,7 +254,7 @@ class HTTPTransport(FeatureDetection):
     def set_bucket_props(self, bucket, props):
         """
         Set bucket properties
-        """ 
+        """
         url = self.build_rest_path(bucket)
         headers = {'Content-Type': 'application/json'}
         content = self.encodeJson({'props': props})
@@ -299,11 +310,11 @@ class HTTPTransport(FeatureDetection):
         # If stats is disabled, we can't assume the Riak version
         # is >= 1.1. However, we can assume the new URL scheme is
         # at least version 1.0
-        elif 'riak_kv_wm_buckets' in self.get_resources():
+        elif 'riak_kv_wm_buckets' in (yield self.get_resources()):
             defer.returnValue("1.0.0")
         else:
             defer.returnValue("0.14.0")
-   
+
     @defer.inlineCallbacks
     def get_resources(self):
         """
@@ -311,7 +322,7 @@ class HTTPTransport(FeatureDetection):
         :rtype dict
         """
         response = yield self.http_request('GET', '/', {'Accept':'application/json'})
-        if response[0]['http_status'] is 200:
+        if response[0]['http_code'] is 200:
             defer.returnValue(self.decodeJson(response[1]))
         else:
             defer.returnValue({})
@@ -333,6 +344,24 @@ class HTTPTransport(FeatureDetection):
             self.parse_body(response, [200, 300, 404])
         )
 
+    @defer.inlineCallbacks
+    def head(self, robj, r = None, pr = None, vtag = None) :
+        """
+        Get metadata for a bucket/key from the server, basically
+        the same as get() but retrieves no data
+        """
+        params = {'r' : r, 'pr': pr}
+        if vtag is not None:
+            params['vtag'] = vtag
+        url = self.build_rest_path(robj.get_bucket(), robj.get_key(),
+                                   params=params)
+
+        response = yield self.http_request('HEAD', url)
+        defer.returnValue(
+            self.parse_body(response, [200, 300, 404])
+        )
+        
+        
     def put(self, robj, w = None, dw = None, pw = None, return_body = True, if_none_match=False):
         """
         Serialize put request and deserialize response
@@ -343,6 +372,7 @@ class HTTPTransport(FeatureDetection):
         url = self.build_rest_path(bucket=robj.get_bucket(), key=robj.get_key(),
                                    params=params)
         headers = self.build_put_headers(robj)
+
         # TODO: use a more general 'prevent_stale_writes' semantics,
         # which is a superset of the if_none_match semantics.
         if if_none_match:
@@ -470,6 +500,7 @@ class HTTPTransport(FeatureDetection):
         result = self.decodeJson(response[1])
         defer.returnValue(result)
 
+    @defer.inlineCallbacks
     def get_index(self, bucket, index, startkey, endkey=None):
         """
         Performs a secondary index query.
@@ -479,11 +510,13 @@ class HTTPTransport(FeatureDetection):
         if endkey:
             segments.append(str(endkey))
         uri = '/%s' % ('/'.join(segments))
-        headers, data = response = self.get_request(uri)
+        headers, data = response = yield self.get_request(uri)
         self.check_http_code(response, [200])
         jsonData = self.decodeJson(data)
-        return jsonData[u'keys'][:]
 
+        defer.returnValue(jsonData[u'keys'][:])
+
+    @defer.inlineCallbacks
     def search(self, index, query, **params):
         """
         Performs a search query.
@@ -499,13 +532,13 @@ class HTTPTransport(FeatureDetection):
         options.update(params)
         # TODO: use resource detection
         uri = "/solr/%s/select" % index
-        headers, data = response = self.get_request(uri, options)
+        headers, data = response = yield self.get_request(uri, options)
         self.check_http_code(response, [200])
         if 'json' in headers['content-type']:
             results = self.decodeJson(data)
-            return self._normalize_json_search_response(results)
+            defer.returnValue(self._normalize_json_search_response(results))
         elif 'xml' in headers['content-type']:
-            return self._normalize_xml_search_response(data)
+            defer.returnValue(self._normalize_xml_search_response(data))
         else:
             raise ValueError("Could not decode search response")
 
@@ -621,7 +654,6 @@ class HTTPTransport(FeatureDetection):
             for link in links:
                 header = self.to_link_header(link)
                 if len(current_header + header) > MAX_LINK_HEADER_SIZE:
-                    headers.add('Link', current_header)
                     current_header = ''
 
                 if current_header != '': header = ', ' + header
