@@ -170,7 +170,8 @@ class RiakPBC(Int32StringReceiver):
         code = pack('B',MSG_CODE_PUT_REQ)
         request = RpbPutReq()
         request.bucket = bucket
-        request.key = key
+        if key is not None:
+            request.key = key
 
         if isinstance(content, str):
             request.content.value = content

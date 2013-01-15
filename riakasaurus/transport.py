@@ -1045,23 +1045,29 @@ class PBCTransport(FeatureDetection):
         """on shutdown, close all transports"""
         self.quit()
 
+    @defer.inlineCallbacks
     def put(self, robj, w = None, dw = None, pw = None, return_body = True, if_none_match=False):
-        ret = self.__put(robj, w, dw, pw, return_body = return_body, if_none_match = if_none_match)
+        ret = yield self.__put(robj, w, dw, pw, return_body = return_body, if_none_match = if_none_match)
         if return_body:
-            return ret
+            defer.returnValue(ret)
         else:
-            return None
+            defer.returnValue(None)
 
+    @defer.inlineCallbacks
     def put_new(self, robj, w=None, dw=None, pw=None, return_body=True, if_none_match=False):
-        ret = self.__put(robj, w, dw, pw, return_body = return_body, if_none_match = if_none_match)
+        rpbGetResp = yield self.__put(robj, w, dw, pw, return_body = return_body,
+                                          if_none_match = if_none_match, parse = False)
+        key = rpbGetResp.key
+        vclock, results = self.parseRpbGetResp(rpbGetResp)
+        metadata, data = results[0]
         if return_body:
-            return ret
+            defer.returnValue((key, vclock, metadata))
         else:
-            return (ret[0],None,None)
+            defer.returnValue((ret[0],None,None))
 
         
     @defer.inlineCallbacks
-    def __put(self, robj, w = None, dw = None, pw = None, return_body=True, if_none_match=False):
+    def __put(self, robj, w = None, dw = None, pw = None, return_body=True, if_none_match=False, parse = True):
         # std kwargs
         kwargs = {'w'             : w,
                   'dw'            : dw,
@@ -1101,7 +1107,10 @@ class PBCTransport(FeatureDetection):
                                   **kwargs
                                   )
         stp.setIdle()
-        defer.returnValue(self.parseRpbGetResp(ret))
+        if parse:
+            defer.returnValue(self.parseRpbGetResp(ret))
+        else:
+            defer.returnValue(ret)
             
 
     @defer.inlineCallbacks
