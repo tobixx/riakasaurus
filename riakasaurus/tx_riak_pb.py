@@ -324,7 +324,7 @@ class RiakPBC(Int32StringReceiver):
         if self.timeoutd and not self.timeoutd.called:
             self.timeoutd.cancel()  # stop timeout from beeing raised
 
-        def returOrRaiseException(msg):
+        def returnOrRaiseException(msg):
             exc = RiakPBCException(msg)
             if self.factory.d.called:
                 raise exc
