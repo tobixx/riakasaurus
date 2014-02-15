@@ -23,6 +23,7 @@ from twisted.internet import defer
 
 from riakasaurus.riak_object import RiakObject
 from riakasaurus.bucket import RiakBucket
+from twisted.python import log
 
 
 class RiakMapReduce(object):
@@ -92,7 +93,7 @@ class RiakMapReduce(object):
         self._key_filters.append(args)
         return self
 
-    def search(self, bucket, query):
+    def search(self, bucket, query,**params):
         """
         Begin a map/reduce operation using a Search. This command will
         return an error unless executed against a Riak Search cluster.
@@ -100,11 +101,13 @@ class RiakMapReduce(object):
         @param query - The search query.
         """
         self._input_mode = 'query'
-        self._inputs = {
-            'module': 'riak_search',
-            'function': 'mapred_search',
-            'arg': [bucket, query]
-        }
+
+        options = {'bucket':bucket,'query': query}
+
+        if 'filter' in params:
+            fil = params.pop('filter')
+            options['filter']=fil
+        self._inputs = options
         return self
 
     def index(self, bucket, index, startkey, endkey=None):
@@ -167,7 +170,7 @@ class RiakMapReduce(object):
                                 function,
                                 options.get('language', language),
                                 options.get('keep', False),
-                                options.get('arg', None))
+                               options.get('arg', None))
         self._phases.append(mr)
         return self
 
@@ -258,6 +261,7 @@ class RiakMapReduce(object):
         # results to RiakLink objects.
         a = []
         for r in result:
+            log.err(r)
             if (len(r) == 2):
                 link = RiakLink(r[0], r[1])
             elif (len(r) == 3):

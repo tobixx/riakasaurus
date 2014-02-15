@@ -123,6 +123,15 @@ class FeatureDetection(object):
         defer.returnValue(d >= versions[1.2])
 
     @defer.inlineCallbacks
+    def counters(self):
+        """
+        Whether search queries are supported over Protocol Buffers
+        :rtype bool
+        """
+        d = yield self.server_version()
+        defer.returnValue(d >= versions[1.4])
+
+    @defer.inlineCallbacks
     def pb_conditionals(self):
         """
         Whether conditional fetch/store semantics are supported over

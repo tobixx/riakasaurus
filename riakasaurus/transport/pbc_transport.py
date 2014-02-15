@@ -6,11 +6,12 @@ LineReceiver.MAX_LENGTH = 1024 * 1024 * 64
 from twisted.internet import defer, reactor, protocol
 from twisted.python import log
 import logging
+import traceback
 
 from distutils.version import LooseVersion
 
 import time
-
+import json
 # MD_ resources
 from riakasaurus.metadata import *
 
@@ -27,11 +28,12 @@ LOGLEVEL_TRANSPORT_VERBOSE = 4
 
 
 class StatefulTransport(object):
-    def __init__(self):
+    def __init__(self,factory):
         self.__transport = None
         self.__state = 'idle'
         self.__created = time.time()
         self.__used = time.time()
+        self.__factory=factory
 
     def __repr__(self):
         return '<StatefulTransport idle=%.2fs state=\'%s\' transport=%s>' % (
@@ -48,6 +50,7 @@ class StatefulTransport(object):
 
     def setActive(self):
         self.__state = 'active'
+        self.__factory.active_count+=1
         self.__used = time.time()
 
     def isIdle(self):
@@ -55,6 +58,7 @@ class StatefulTransport(object):
 
     def setIdle(self):
         self.__state = 'idle'
+        self.__factory.active_count-=1
         self.__used = time.time()
 
     def setTransport(self, transport):
@@ -78,7 +82,7 @@ class PBCTransport(transport.FeatureDetection):
 
     debug = 0
     logToLevel = logging.INFO
-    MAX_TRANSPORTS = 50
+    MAX_TRANSPORTS = 100
     MAX_IDLETIME = 5 * 60     # in seconds
     # how often (in seconds) the garbage collection should run
     # XXX Why the hell do we even have to override GC?
@@ -91,6 +95,7 @@ class PBCTransport(transport.FeatureDetection):
         self.client = client
         self._client_id = None
         self._transports = []    # list of transports, empty on start
+        self.active_count = 0
         self._gc = reactor.callLater(self.GC_TIME, self._garbageCollect)
         self.timeout = client.request_timeout
 
@@ -124,7 +129,7 @@ class PBCTransport(transport.FeatureDetection):
 
             # insert a placeholder into self._transports to avoid race
             # conditions with the MAX_TRANSPORTS check above.
-            stp = StatefulTransport()
+            stp = StatefulTransport(self)
             stp.setActive()
             idx = len(self._transports)
             self._transports.append(stp)
@@ -182,8 +187,7 @@ class PBCTransport(transport.FeatureDetection):
 
     @defer.inlineCallbacks
     def quit(self):
-        if not self._gc.cancelled:
-            self._gc.cancel()      # cancel the garbage collector
+        self._gc.cancel()      # cancel the garbage collector
 
         for stp in self._transports:
             if self.debug & LOGLEVEL_DEBUG:
@@ -318,6 +322,71 @@ class PBCTransport(transport.FeatureDetection):
         defer.returnValue(ret)
 
     @defer.inlineCallbacks
+    def search(self, index, query, **params):
+        """
+        Performs a search query.
+        """
+        if index is None:
+            index = 'search'
+
+        options = {'wt': 'json'}
+        if 'op' in params:
+            op = params.pop('op')
+            options['q.op'] = op
+
+        if 'start' in params:
+            start = int(params.pop('start'))
+            options['start']=start
+
+        if 'rows' in params:
+            rows = int(params.pop('rows'))
+            options['rows']=rows
+
+        if 'sort' in params:
+            sort = params.pop('sort')
+            options['sort']=sort
+
+        if 'filter' in params:
+            fil = params.pop('filter')
+            options['filter']=fil
+        if 'presort' in params:
+            presort = params.pop('presort')
+            options['presort']=presort
+        if 'df' in params:
+            df = params.pop('df')
+            options['df']=df
+        if 'fl' in params:
+            fl = params.pop('fl')
+            options['fl']=fl
+
+        options.update(params)
+        with (yield self._getFreeTransport()) as transport:
+            ret = yield transport.search(index,query,**options)
+
+        ret = self.parseRpbSearchResp(ret) #didn't really parse it, just annotates resp structure
+        defer.returnValue(ret)
+
+
+    @defer.inlineCallbacks
+    def mapred(self, inputs, query, timeout=None):
+        """
+        Run a MapReduce query.
+        """
+        plm = yield self.phaseless_mapred()
+        if not plm and (query is None or len(query) is 0):
+            raise Exception('Phase-less MapReduce is not supported'
+                            'by this Riak node')
+        # Construct the job, optionally set the timeout...
+        job = {'inputs': inputs, 'query': query}
+        if timeout is not None:
+            job['timeout'] = timeout
+        content = self.encodeJson(job)
+        with (yield self._getFreeTransport()) as transport:
+            ret = yield transport.mapred(content)
+        ret = self.parseRpbMapReduceResp(ret)
+        defer.returnValue(ret)
+
+    @defer.inlineCallbacks
     def get_buckets(self):
         with (yield self._getFreeTransport()) as transport:
             ret = yield transport.getBuckets()
@@ -327,8 +396,10 @@ class PBCTransport(transport.FeatureDetection):
     def server_version(self):
         if not self._s_version:
             self._s_version = yield self._server_version()
-
         defer.returnValue(LooseVersion(self._s_version))
+
+
+
 
     @defer.inlineCallbacks
     def _server_version(self):
@@ -353,6 +424,27 @@ class PBCTransport(transport.FeatureDetection):
         with (yield self._getFreeTransport()) as transport:
             ret = yield transport.ping()
         defer.returnValue(ret == True)
+
+    @defer.inlineCallbacks
+    def get_counter(self, bucket, key, **params):
+        counters = yield self.counters()
+        if not counters:
+            raise NotImplementedError("Counters are not supported")
+
+        with (yield self._getFreeTransport()) as transport:
+            ret = yield transport.get_counter(bucket,key,**params)
+            defer.returnValue(ret)
+
+    @defer.inlineCallbacks
+    def update_counter(self, bucket, key, value, **params):
+        counters = yield self.counters()
+        if not counters:
+            raise NotImplementedError("Counters are not supported")
+        with (yield self._getFreeTransport()) as transport:
+            ret = yield transport.get_counter(bucket,key,**params)
+            defer.returnValue(ret)
+
+
 
     @defer.inlineCallbacks
     def set_bucket_props(self, bucket, props):
@@ -382,10 +474,87 @@ class PBCTransport(transport.FeatureDetection):
         defer.returnValue(ret)
 
     @defer.inlineCallbacks
-    def get_index(self, bucket, index, startkey, endkey=None):
+    def get_index(self, bucket, index, startkey, endkey=None,return_terms=False, max_results=None, continuation=None):
+        '''
+        message RpbIndexResp {
+            repeated bytes keys = 1;
+            repeated RpbPair results = 2;
+            optional bytes continuation = 3;
+            optional bool done = 4;
+        }
+
+        '''
         with (yield self._getFreeTransport()) as transport:
-            ret = yield transport.get_index(bucket, index, startkey, endkey=endkey)
-        defer.returnValue(ret)
+            ret = yield transport.get_index(bucket, index, startkey, endkey=endkey,return_terms=return_terms, max_results=max_results, continuation=continuation)
+        for resp in ret:
+            #TODO fixme here
+            if return_terms and resp.results:
+                results = [(decode_index_value(index, pair.key), pair.value)
+                           for pair in resp.results]
+            else:
+                results = resp.keys[:]
+
+            if max_results:
+                defer.returnValue ((results, resp.continuation))
+            else:
+                defer.returnValue ((results, None))
+
+    def parseRpbSearchResp(self,res):
+        '''
+        adatpor for a RpbSearchResp message
+        message RpbSearchResp  
+        // RbpPair is a generic key/value pair datatype used for other message types
+        message RpbPair {
+          required bytes key = 1;
+          optional bytes value = 2;
+        }
+        message RpbSearchDoc {
+          repeated RpbPair fields = 1;
+        }
+        message RpbSearchQueryResp {
+          repeated RpbSearchDoc docs      = 1;
+          optional float        max_score = 2;
+          optional uint32       num_found = 3;
+        }
+        '''
+        result = {}
+        attributes = ['max_score','num_found']
+        for prop in attributes:
+            result[prop]=getattr(res,prop,0)
+        result['docs']=[]
+        docs=getattr(res,'docs',[])
+        for doc in docs:
+            tc={}
+            for field in getattr(doc,'fields',[]):
+                tc[getattr(field,'key')]=getattr(field,'value')
+            result['docs'].append(tc)
+        return result
+
+    def parseRpbMapReduceResp(self,res):
+        '''
+        adatpor for a RpbMapRedResp message
+        res is a list of RpbMapRedResp,each result referes to a phase of 
+        message RpbMapRedResp {
+            optional uint32 phase = 1;
+            optional bytes response = 2;
+            optional bool done = 3;
+        }
+        '''
+        ret = []
+        for result in res:
+            if result.response:
+                try:
+                    res = self.decodeJson(result.response)
+                    for o in res:
+                        ret.append(o)
+#                    if len(res)>1:
+                        #print res
+                except Exception,e:
+                    log.err( e )
+                    log.err('Error parse mapred ressult')
+                    log.err( traceback.format_exc())
+                    ret.append(result.response)
+        return ret
 
     def parseRpbGetResp(self, res):
         """

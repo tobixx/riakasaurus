@@ -262,13 +262,13 @@ class RiakClient(object):
         mr = mapreduce.RiakMapReduce(self)
         return mr.add(*args)
 
-    def search(self, *args):
+    def search(self, *args,**kwargs):
         """
         Start assembling a Map/Reduce operation for Riak Search
         see RiakMapReduce.search()
         """
         mr = mapreduce.RiakMapReduce(self)
-        return mr.search(*args)
+        return mr.search(*args,**kwargs)
 
     def link(self, args):
         """
@@ -318,9 +318,72 @@ class RiakClient(object):
 
     def solr(self):
         if self._solr is None:
-            self._solr = RiakSearch(self, host=self._host, port=self._port)
-
+            self._solr = RiakSearch(self)
         return self._solr
+
+    def fulltext_search(self,index,query,**kwargs):
+        return self.transport.search(index,query,**kwargs)
+
+    def get_counter(self, bucket, key, r=None, pr=None,
+                    basic_quorum=None, notfound_ok=None):
+        """
+        get_counter(bucket, key, r=None, pr=None, basic_quorum=None,\
+                    notfound_ok=None)
+
+        Gets the value of a counter.
+
+        .. note:: This request is automatically retried :attr:`RETRY_COUNT`
+           times if it fails due to network error.
+
+        :param bucket: the bucket of the counter
+        :type bucket: RiakBucket
+        :param key: the key of the counter
+        :type key: string
+        :param r: the read quorum
+        :type r: integer, string, None
+        :param pr: the primary read quorum
+        :type pr: integer, string, None
+        :param basic_quorum: whether to use the "basic quorum" policy
+           for not-founds
+        :type basic_quorum: bool
+        :param notfound_ok: whether to treat not-found responses as successful
+        :type notfound_ok: bool
+        :rtype: integer
+        """
+        return self.transport.get_counter(bucket, key, r=r, pr=pr)
+
+    def update_counter(self, bucket, key, value, w=None, dw=None, pw=None,
+                       returnvalue=False):
+        """
+        update_counter(bucket, key, value, w=None, dw=None, pw=None,\
+                       returnvalue=False)
+
+        Updates a counter by the given value. This operation is not
+        idempotent and so should not be retried automatically.
+
+        :param bucket: the bucket of the counter
+        :type bucket: RiakBucket
+        :param key: the key of the counter
+        :type key: string
+        :param value: the amount to increment or decrement
+        :type value: integer
+        :param w: the write quorum
+        :type w: integer, string, None
+        :param dw: the durable write quorum
+        :type dw: integer, string, None
+        :param pw: the primary write quorum
+        :type pw: integer, string, None
+        :param returnvalue: whether to return the updated value of the counter
+        :type returnvalue: bool
+        """
+        if type(value) not in (int, long):
+            raise TypeError("Counter update amount must be an integer")
+        if value == 0:
+            raise ValueError("Cannot increment counter by 0")
+
+            return self.transport.update_counter(bucket, key, value,
+                                            w=w, dw=dw, pw=pw,
+                                            returnvalue=returnvalue)
 
 
 if __name__ == "__main__":

@@ -443,6 +443,40 @@ class HTTPTransport(transport.FeatureDetection):
             defer.returnValue((key, None, None))
 
     @defer.inlineCallbacks
+    def get_counter(self, bucket, key, **options):
+        counters = yield self.counters()
+        if not counters:
+            raise NotImplementedError("Counters are not supported")
+
+        url = '/buckets/%s/counters/%s' %(bucket,key)
+        headers, data = response = yield self.get_request(url)
+
+        self.check_http_code(response, [200, 404])
+        if status == 200:
+            defer.returnValue( long(data.strip()) )
+        elif status == 404:
+            defer.returnValue( None )
+
+    @defer.inlineCallbacks
+    def update_counter(self, bucket, key, amount, **options):
+        counters = yield self.counters()
+        if not counters:
+            raise NotImplementedError("Counters are not supported")
+        return_value = 'returnvalue' in options and options['returnvalue']
+        content_type  = 'text/plain'
+        url = '/buckets/%s/counters/%s' %(bucket,key)
+
+        headers, body = response = yield self.post_request(url, str(amount),content_type = content_type)
+        status = response[0]['http_code']
+
+        if return_value and status == 200:
+            defer.returnValue( long(body.strip()) )
+        elif status == 204:
+            defer.returnValue( True )
+        else:
+            self.check_http_code(response, [200, 204])
+
+    @defer.inlineCallbacks
     def delete(self, robj, rw=None, r=None, w=None, dw=None, pr=None,
                pw=None):
         """
@@ -528,8 +562,8 @@ class HTTPTransport(transport.FeatureDetection):
         job = {'inputs': inputs, 'query': query}
         if timeout is not None:
             job['timeout'] = timeout
-
         content = self.encodeJson(job)
+        #print content
 
         # Do the request...
         url = "/" + self.client._mapred_prefix
@@ -575,6 +609,32 @@ class HTTPTransport(transport.FeatureDetection):
         if 'op' in params:
             op = params.pop('op')
             options['q.op'] = op
+
+        if 'start' in params:
+            start = int(params.pop('start'))
+            options['start']=start
+
+        if 'rows' in params:
+            rows = int(params.pop('rows'))
+            options['rows']=rows
+
+        if 'sort' in params:
+            sort = params.pop('sort')
+            options['sort']=sort
+
+        if 'filter' in params:
+            fil = params.pop('filter')
+            options['filter']=fil
+        if 'presort' in params:
+            presort = params.pop('presort')
+            options['presort']=presort
+        if 'df' in params:
+            df = params.pop('df')
+            options['df']=df
+        if 'fl' in params:
+            fl = params.pop('fl')
+            options['fl']=fl
+
 
         options.update(params)
         # TODO: use resource detection

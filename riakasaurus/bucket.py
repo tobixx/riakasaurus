@@ -20,9 +20,15 @@ under the License.
 from twisted.internet import defer
 
 from riakasaurus.riak_object import RiakObject
+from twisted.python import log
 
 import mimetypes
 
+def chunks(l, n):
+    """ Yield successive n-sized chunks from l.
+    """
+    for i in xrange(0, len(l), n):
+        yield l[i:i+n]
 
 class RiakBucket(object):
     """
@@ -30,8 +36,6 @@ class RiakBucket(object):
     about a Riak bucket, and provides methods to create or retrieve
     objects within the bucket.
     """
-
-    SEARCH_PRECOMMIT_HOOK = {"mod": "riak_search_kv_hook", "fun": "precommit"}
 
     def __init__(self, client, name):
         """
@@ -326,6 +330,18 @@ class RiakBucket(object):
         pr = self.get_pr(pr)
         return obj.reload(r=r, pr=pr)
 
+    def delete(self, key, **kwargs):
+        """Deletes an object from riak. Short hand for
+        bucket.new(key).delete(). See :meth:`RiakClient.delete()
+        <riak.client.RiakClient.delete>` for options.
+
+        :param key: The key for the object
+        :type key: string
+        :rtype: RiakObject
+        """
+        return self.new(key).delete(**kwargs)
+
+
     def head(self, key, r=None, pr=None):
         """
         Retrieve a JSON-encoded object from Riak.
@@ -534,8 +550,8 @@ class RiakBucket(object):
         """
         Returns True if the search precommit hook is enabled for this bucket.
         """
-        pch = yield self.get_property("precommit")
-        defer.returnValue(self.SEARCH_PRECOMMIT_HOOK in (pch or []))
+        pch = yield self.get_property("search")
+        defer.returnValue(pch)
 
     @defer.inlineCallbacks
     def enable_search(self):
@@ -544,11 +560,9 @@ class RiakBucket(object):
         index objects in it.
         Returns deferred
         """
-        pch = yield self.get_property("precommit")
-        precommit_hooks = pch or []
-        if self.SEARCH_PRECOMMIT_HOOK not in precommit_hooks:
-            yield self.set_properties({"precommit":
-                precommit_hooks + [self.SEARCH_PRECOMMIT_HOOK]})
+        pch = yield self.get_property("search")
+        if not pch:
+            yield self.set_property("search",True)
 
         defer.returnValue(True)
 
@@ -558,12 +572,9 @@ class RiakBucket(object):
         Disable search for this bucket by removing the precommit hook to
         index objects in it.
         """
-        pch = yield self.get_property("precommit")
-        precommit_hooks = pch or []
-        if self.SEARCH_PRECOMMIT_HOOK in precommit_hooks:
-            precommit_hooks.remove(self.SEARCH_PRECOMMIT_HOOK)
-            yield self.set_properties({"precommit": precommit_hooks})
-
+        pch = yield self.get_property("search")
+        if pch:
+            yield self.set_property("search", False)
         defer.returnValue(True)
 
     def search(self, query, **params):
@@ -584,7 +595,7 @@ class RiakBucket(object):
         return self.get_keys()
 
     @defer.inlineCallbacks
-    def purge_keys(self):
+    def purge_keys(self,enable_parallel=False,parallel=30):
         """
         Purge all keys from the bucket. Specific to Riakasaurus
 
@@ -601,6 +612,11 @@ class RiakBucket(object):
         keys = yield self.get_keys()
 
         # Major key-killing action
-        for key in keys:
-            obj = yield self.get_binary(key)
-            yield obj.delete()
+        if enable_parallel:
+            for l in chunks(keys,parallel):
+                dl = defer.DeferredList(map(lambda x:self.get_binary(x).addCallbacks(lambda obj:obj.delete(),log.err),l))
+                yield dl
+        else:
+            for key in keys:
+                obj = yield self.get_binary(key)
+                yield obj.delete()
