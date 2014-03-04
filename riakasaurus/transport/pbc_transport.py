@@ -492,7 +492,7 @@ class PBCTransport(transport.FeatureDetection):
             optional bytes continuation = 3;
             optional bool done = 4;
         }
-
+        return (results,continuation)
         '''
         with (yield self._getFreeTransport()) as transport:
             ret = yield transport.get_index(bucket, index, startkey, endkey=endkey,return_terms=return_terms, max_results=max_results, continuation=continuation)
@@ -510,18 +510,7 @@ class PBCTransport(transport.FeatureDetection):
                 defer.returnValue((results,resp.continuation))
             else:
                 defer.returnValue((results,None))
-                #TODO fixme here
-#                if return_terms and resp.results:
-                    #pass
-                    #results = [(decode_index_value(index, pair.key), pair.value)
-                               #for pair in resp.results]
-                #else:
-                    #results = resp.keys[:]
 
-                #if max_results:
-                    #defer.returnValue ((results, resp.continuation))
-                #else:
-                    #defer.returnValue ((results, None))
 
     def parseRpbSearchResp(self,res):
         '''

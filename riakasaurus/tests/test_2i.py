@@ -95,10 +95,9 @@ class Tests(unittest.TestCase):
         obj.add_index('field2_int', 1003)
         yield obj.store()
 
-        results = yield self.bucket.get_index('field2_int', 1,
-                                          2000)
+        results = yield self.bucket.get_index('field2_int', 1, 2000)
 
-        self.assertEqual(sorted(results),
+        self.assertEqual(sorted(results['keys']),
                          ['foo1', 'foo2'])
 
         log.msg("done secondary_index")

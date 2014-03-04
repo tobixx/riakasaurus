@@ -583,7 +583,7 @@ class HTTPTransport(transport.FeatureDetection):
 
     @defer.inlineCallbacks
     def get_index(self, bucket, index, startkey, endkey=None,
-            return_terms=None, max_results=None,continuation=None):
+            return_terms=False, max_results=None,continuation=None):
         """
         Performs a secondary index query.
         """
@@ -592,13 +592,12 @@ class HTTPTransport(transport.FeatureDetection):
                   'continuation': continuation}
         p = {}
         for k,v in params.iteritems():
-            if v:
-                if v == True:
-                    p[k]='true'
-                elif v == False:
-                    p[k]='false'
-                else:
-                    p[k]=v
+            if isinstance(v,bool):
+                p[k]=str(v).lower()
+            elif v == None:
+                continue
+            else:
+                p[k]=v
         query_params = urllib.urlencode(p) if p else ''
         segments = ["buckets", bucket, "index", index, str(startkey)]
         if endkey:

@@ -6,7 +6,7 @@ from test_basic import BasicTestsMixin
 from riakasaurus import riak, transport
 
 import sys,os
-PATH = os.path.join(os.path.dirname(__filename__),'../../')
+PATH = os.path.join(os.path.dirname(__file__),'../../')
 sys.path.append(PATH)
 
 RIAK_CLIENT_ID = 'TEST'

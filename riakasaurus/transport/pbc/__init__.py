@@ -224,7 +224,7 @@ class RiakPBC(Int32StringReceiver):
             req.qtype = RpbIndexReq.range
             req.range_min = str(startkey)
             req.range_max = str(endkey)
-            req.return_terms = return_terms
+            req.return_terms = return_terms if isinstance(return_terms,bool) else False
         else:
             req.qtype = RpbIndexReq.eq
             req.key = str(startkey)

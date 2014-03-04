@@ -5,6 +5,7 @@ riakasaurus _must_ be on your PYTHONPATH
 
 """
 
+import json
 import random
 from twisted.trial import unittest
 from twisted.python import log
@@ -12,11 +13,12 @@ from twisted.internet import defer
 
 VERBOSE = False
 
-from riakasaurus import riak, transport
+from riakasaurus import riak
+from riakasaurus import transport
 
 # uncomment to activate logging
-# import sys
-# log.startLogging(sys.stderr)
+import sys
+log.startLogging(sys.stderr)
 
 RIAK_CLIENT_ID = 'TEST'
 BUCKET_PREFIX = 'riakasaurus.tests.'
@@ -44,20 +46,23 @@ class Tests(unittest.TestCase):
 
     @defer.inlineCallbacks
     def setUp(self):
-        self.client = riak.RiakClient(client_id=RIAK_CLIENT_ID,
-                port=8087, transport=transport.PBCTransport)
+        self.client = riak.RiakClient(client_id=RIAK_CLIENT_ID,transport=transport.PBCTransport,port=8087)
         self.bucket_name = BUCKET_PREFIX + self.id().rsplit('.', 1)[-1]
         self.bucket = self.client.bucket(self.bucket_name)
+        #yield self.bucket.enable_search()
         yield self.bucket.purge_keys()
 
     @defer.inlineCallbacks
     def tearDown(self):
+        #yield self.bucket.disable_search()
         yield self.bucket.purge_keys()
         yield self.client.get_transport().quit()
 
+
     @defer.inlineCallbacks
-    def test_get_index(self):
+    def test_secondary_index_mapred(self):
         log.msg("*** secondary_index")
+        #yield self.bucket.enable_search()
 
         obj = self.bucket.new('foo1', {'field1': 'val1', 'field2': 1001})
         obj.add_index('field1_bin', 'val1')
@@ -69,10 +74,35 @@ class Tests(unittest.TestCase):
         obj.add_index('field2_int', 1003)
         yield obj.store()
 
-        results = yield self.bucket.get_index('field2_int', 1,
-                                          2000)
+        results = yield self.client.index(self.bucket_name,
+                                          'field1_bin', 'val2').run()
+
+        r1 = yield results[0].get()
+
+        self.assertEqual(r1.get_key(), u'foo2')
+
+        log.msg("done secondary_index")
+
+    @defer.inlineCallbacks
+    def test_get_index(self):
+        log.msg("*** secondary_index")
+        #yield self.bucket.enable_search()
+
+        obj = self.bucket.new('foo1', {'field1': 'val1', 'field2': 1001})
+        obj.add_index('field1_bin', 'val1')
+        obj.add_index('field2_int', 1001)
+        yield obj.store()
+
+        obj = self.bucket.new('foo2', {'field1': 'val2', 'field2': 1003})
+        obj.add_index('field1_bin', 'val2')
+        obj.add_index('field2_int', 1003)
+        yield obj.store()
+
+        results,continuation = yield self.bucket.get_index('field2_int', 1, 2000,return_terms=False)
+        log.msg(results)
 
         self.assertEqual(sorted(results),
                          ['foo1', 'foo2'])
 
         log.msg("done secondary_index")
+
