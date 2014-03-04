@@ -48,12 +48,10 @@ class Tests(unittest.TestCase):
         self.client = riak.RiakClient(client_id=RIAK_CLIENT_ID)
         self.bucket_name = BUCKET_PREFIX + self.id().rsplit('.', 1)[-1]
         self.bucket = self.client.bucket(self.bucket_name)
-        yield self.bucket.enable_search()
         yield self.bucket.purge_keys()
 
     @defer.inlineCallbacks
     def tearDown(self):
-        yield self.bucket.disable_search()
         yield self.bucket.purge_keys()
 
     @defer.inlineCallbacks

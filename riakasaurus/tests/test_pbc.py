@@ -192,7 +192,7 @@ class Test_PBCClient(unittest.TestCase):
     def test_connection_refused(self):
         try:
             # Connection to a host that does not exist.
-            yield pbc.RiakPBCClient().connect('127.0.0.17', 8087)
+            yield pbc.RiakPBCClient().connect('127.0.0.1', 65534)
             assert False, 'ConnectionRefusedError not raised as expected.'
         except ConnectionRefusedError:
             pass

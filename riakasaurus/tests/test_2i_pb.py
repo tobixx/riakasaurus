@@ -49,12 +49,11 @@ class Tests(unittest.TestCase):
         self.client = riak.RiakClient(client_id=RIAK_CLIENT_ID,transport=transport.PBCTransport,port=8087)
         self.bucket_name = BUCKET_PREFIX + self.id().rsplit('.', 1)[-1]
         self.bucket = self.client.bucket(self.bucket_name)
-        #yield self.bucket.enable_search()
         yield self.bucket.purge_keys()
 
     @defer.inlineCallbacks
     def tearDown(self):
-        #yield self.bucket.disable_search()
+        yield self.bucket.disable_search()
         yield self.bucket.purge_keys()
         yield self.client.get_transport().quit()
 
@@ -62,7 +61,6 @@ class Tests(unittest.TestCase):
     @defer.inlineCallbacks
     def test_secondary_index_mapred(self):
         log.msg("*** secondary_index")
-        #yield self.bucket.enable_search()
 
         obj = self.bucket.new('foo1', {'field1': 'val1', 'field2': 1001})
         obj.add_index('field1_bin', 'val1')
@@ -86,7 +84,6 @@ class Tests(unittest.TestCase):
     @defer.inlineCallbacks
     def test_get_index(self):
         log.msg("*** secondary_index")
-        #yield self.bucket.enable_search()
 
         obj = self.bucket.new('foo1', {'field1': 'val1', 'field2': 1001})
         obj.add_index('field1_bin', 'val1')

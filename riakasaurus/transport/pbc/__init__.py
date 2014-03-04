@@ -420,7 +420,7 @@ class RiakPBC(Int32StringReceiver):
         request.bucket = bucket
 
         for k, v in kwargs.items():
-            if k in ['n_val', 'allow_mult']:
+            if k in ['n_val', 'allow_mult','last_write_wins','precommit','has_precommit','postcommit','has_postcommit','chash_keyfun','linkfun','old_vclock','young_vclock','big_vclock','small_vclock','pr','r','w','pw','dw','rw','basic_quorum','notfound_ok','backend','search','repl','search_index','datatype']:
                 setattr(request.props, k, v)
             else:
                 raise exceptions.RiakPBCException(
