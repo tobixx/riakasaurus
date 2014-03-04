@@ -9,7 +9,7 @@ from struct import pack, unpack
 from pprint import pformat
 
 # generated code from *.proto message definitions
-from riakasaurus.transport.pbc import riak_kv_pb2, riak_pb2
+from riakasaurus.transport.pbc import riak_kv_pb2, riak_pb2,riak_search_pb2
 from riakasaurus import exceptions
 
 ## Protocol codes
@@ -42,6 +42,13 @@ MSG_CODE_INDEX_REQ = 25
 MSG_CODE_INDEX_RESP = 26
 MSG_CODE_SEARCH_QUERY_REQ = 27
 MSG_CODE_SEARCH_QUERY_RESP = 28
+MSG_CODE_RESET_BUCKET_REQ = 29
+MSG_CODE_RESET_BUCKET_RESP = 30
+MSG_CODE_COUNTER_UPDATE_REQ = 50
+MSG_CODE_COUNTER_UPDATE_RESP = 51
+MSG_CODE_COUNTER_GET_REQ = 52
+MSG_CODE_COUNTER_GET_RESP = 53
+
 
 ## Inject PBC classes
 
@@ -55,16 +62,25 @@ RpbDelReq = riak_kv_pb2.RpbDelReq
 RpbListBucketsResp = riak_kv_pb2.RpbListBucketsResp
 RpbListKeysReq = riak_kv_pb2.RpbListKeysReq
 RpbListKeysResp = riak_kv_pb2.RpbListKeysResp
-RpbGetBucketReq = riak_kv_pb2.RpbGetBucketReq
-RpbGetBucketResp = riak_kv_pb2.RpbGetBucketResp
-RpbSetBucketReq = riak_kv_pb2.RpbSetBucketReq
+RpbGetBucketReq = riak_pb2.RpbGetBucketReq
+RpbGetBucketResp = riak_pb2.RpbGetBucketResp
+RpbSetBucketReq = riak_pb2.RpbSetBucketReq
 RpbMapRedReq = riak_kv_pb2.RpbMapRedReq
 RpbMapRedResp = riak_kv_pb2.RpbMapRedResp
+
+RpbCounterGetReq = riak_kv_pb2.RpbCounterGetReq
+RpbCounterGetResp = riak_kv_pb2.RpbCounterGetResp
+RpbCounterUpdateReq = riak_kv_pb2.RpbCounterUpdateReq
+RpbCounterUpdateResp = riak_kv_pb2.RpbCounterUpdateResp
+
+RpbSearchQueryReq = riak_search_pb2.RpbSearchQueryReq
+RpbSearchQueryResp = riak_search_pb2.RpbSearchQueryResp
+
 RpbIndexReq = riak_kv_pb2.RpbIndexReq
 RpbIndexResp = riak_kv_pb2.RpbIndexResp
 RpbContent = riak_kv_pb2.RpbContent
 RpbLink = riak_kv_pb2.RpbLink
-RpbBucketProps = riak_kv_pb2.RpbBucketProps
+RpbBucketProps = riak_pb2.RpbBucketProps
 
 RpbErrorResp = riak_pb2.RpbErrorResp
 RpbGetServerInfoResp = riak_pb2.RpbGetServerInfoResp
@@ -89,14 +105,17 @@ class RiakPBC(Int32StringReceiver):
     riakResponses = {
         MSG_CODE_ERROR_RESP: RpbErrorResp,
         MSG_CODE_GET_CLIENT_ID_RESP: RpbGetClientIdResp,
-        MSG_CODE_GET_SERVER_INFO_RESP: RpbGetServerInfoResp,
         MSG_CODE_GET_RESP: RpbGetResp,
         MSG_CODE_PUT_RESP: RpbPutResp,
         MSG_CODE_LIST_KEYS_RESP: RpbListKeysResp,
         MSG_CODE_LIST_BUCKETS_RESP: RpbListBucketsResp,
         MSG_CODE_GET_BUCKET_RESP: RpbGetBucketResp,
+        MSG_CODE_COUNTER_GET_RESP : RpbCounterGetResp,
+        MSG_CODE_COUNTER_UPDATE_RESP : RpbCounterUpdateResp,
         MSG_CODE_GET_SERVER_INFO_RESP: RpbGetServerInfoResp,
         MSG_CODE_INDEX_RESP: RpbIndexResp,
+        MSG_CODE_SEARCH_QUERY_RESP: RpbSearchQueryResp,
+        MSG_CODE_MAPRED_RESP:RpbMapRedResp,
     }
 
     PBMessageTypes = {
@@ -197,23 +216,62 @@ class RiakPBC(Int32StringReceiver):
 
         return self.__send(code, request)
 
-    def get_index(self, bucket, index, startkey, endkey=None):
+    def get_index(self, bucket, index, startkey, endkey=None,return_terms=False, max_results=None, continuation=None):
         code = pack('B', MSG_CODE_INDEX_REQ)
         req = RpbIndexReq(bucket=bucket, index=index)
+        self.__indexResultList = []
         if endkey:
             req.qtype = RpbIndexReq.range
             req.range_min = str(startkey)
             req.range_max = str(endkey)
+            req.return_terms = return_terms
         else:
             req.qtype = RpbIndexReq.eq
             req.key = str(startkey)
-
+        if max_results:
+            req.max_results = max_results
+        if continuation:
+            req.continuation = continuation
+        req.stream = True
         d = self.__send(code, req)
-        d.addCallback(lambda resp: resp.keys)
+        d.addCallback(lambda resp: resp)
         return d
 
     def put_new(self, bucket, key, content, vclock=None, **kwargs):
         return put(bucket, key, content, vclock, kwargs)
+
+    def get_counter(self, bucket, key , **params):
+        code = pack('B', MSG_CODE_COUNTER_GET_REQ)
+        req = RpbCounterGetReq(bucket = bucket, key = key)
+        if params.get('r') is not None:
+            req.r = int(params['r'])
+        if params.get('pr') is not None:
+            req.pr = int(params['pr'])
+        if params.get('basic_quorum') is not None:
+            req.basic_quorum = params['basic_quorum']
+        if params.get('notfound_ok') is not None:
+            req.notfound_ok = params['notfound_ok']
+
+        d = self.__send(code, req)
+        d.addCallback(lambda resp: resp.value if resp.HasField('value') else None)
+        return d
+
+    def update_counter(self,bucket,key,value,**params):
+        code = pack('B', MSG_CODE_COUNTER_UPDATE_REQ)
+        req = RpbCounterUpdateReq(bucket = bucket, key = key, amount = long(value))
+        if params.get('w') is not None:
+            req.w = self.int(params['w'])
+        if params.get('dw') is not None:
+            req.dw = self.int(params['dw'])
+        if params.get('pw') is not None:
+            req.pw = self.int(params['pw'])
+        if params.get('returnvalue') is not None:
+            req.returnvalue = params['returnvalue']
+        d = self.__send(code, req)
+        d.addCallback(lambda resp: resp.value if resp.HasField('value') else True)
+        return d
+
+
 
     def put(self, bucket, key, content, vclock=None, **kwargs):
         code = pack('B', MSG_CODE_PUT_REQ)
@@ -292,6 +350,41 @@ class RiakPBC(Int32StringReceiver):
                 setattr(request, prop, self._resolveNums(kwargs[prop]))
 
         return self.__send(code, request)
+
+    def search(self, index, query, **kwargs):
+
+        code = pack('B', MSG_CODE_SEARCH_QUERY_REQ)
+        request = RpbSearchQueryReq()
+        request.index=index
+        if isinstance(query,unicode):
+            query=query.encode('utf-8')
+        request.q=query
+        for prop in ['op','sort','filter','presort','df']:
+            if prop in kwargs:
+                setattr(request,prop,kwargs[prop])
+        for prop in ['start','rows']:
+            if prop in kwargs:
+                setattr(request, prop, self._resolveNums(kwargs[prop]))
+        fl = kwargs.get('fl','')
+        if fl:
+            if isinstance(fl,str) or isinstance(fl,unicode):
+                fl=[fl]
+            for f in fl:
+                request.fl.append(str(f))
+        return self.__send(code, request)
+
+    def mapred(self, request,content_type='application/json'):
+        self.__mapredList = []
+        if content_type != 'application/json':
+            raise Exception("Only json request is implemented")
+        code = pack('B', MSG_CODE_MAPRED_REQ)
+        req = RpbMapRedReq()
+        req.request=request
+        req.content_type=content_type
+        return self.__send(code, req)
+
+
+
 
     # ------------------------------------------------------------------
     # Bucket Operations .. getKeys, getBuckets, get/set Bucket properties
@@ -415,6 +508,44 @@ class RiakPBC(Int32StringReceiver):
             if not self.factory.d.called:
                 self.factory.d.callback(True)
             return
+
+        elif code == MSG_CODE_MAPRED_RESP:
+            # listKeys is special as it returns multiple response messages
+            # each message can contain multiple keys
+            # the last message contains a optional field "done"
+            # so collect all the messages until the last one, then call the
+            # callback
+            response = RpbMapRedResp()
+            response.ParseFromString(data[1:])
+            if self.debug:
+                print "[%s] %s %s" % (
+                        self.__class__.__name__,
+                        response.__class__.__name__,
+                        str(response).replace('\n', ' ')
+                    )
+
+            self.__mapredList.append(response)
+            if response.HasField('done') and response.done:
+                if not self.factory.d.called:
+                    self.factory.d.callback(self.__mapredList)
+                    self.__mapredList = []
+
+        elif code == MSG_CODE_INDEX_RESP:
+            response = RpbIndexResp()
+            response.ParseFromString(data[1:])
+            if self.debug:
+                print "[%s] %s %s" % (
+                        self.__class__.__name__,
+                        response.__class__.__name__,
+                        str(response).replace('\n', ' ')
+                    )
+
+            self.__indexResultList.append(response)
+            if response.HasField('done') and response.done:
+                if not self.factory.d.called:
+                    self.factory.d.callback(self.__indexResultList)
+                    self.__indexResultList = []
+
 
         elif code == MSG_CODE_LIST_KEYS_RESP:
             # listKeys is special as it returns multiple response messages

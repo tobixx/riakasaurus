@@ -9,6 +9,7 @@ versions = {
     1.1: LooseVersion("1.1.0"),
     1.2: LooseVersion("1.2.0"),
     1.3: LooseVersion("1.3.0"),
+    1.4: LooseVersion("1.4.0"),
     }
 
 
@@ -121,6 +122,15 @@ class FeatureDetection(object):
         """
         d = yield self.server_version()
         defer.returnValue(d >= versions[1.2])
+
+    @defer.inlineCallbacks
+    def counters(self):
+        """
+        Whether search queries are supported over Protocol Buffers
+        :rtype bool
+        """
+        d = yield self.server_version()
+        defer.returnValue(d >= versions[1.4])
 
     @defer.inlineCallbacks
     def pb_conditionals(self):
