@@ -9,7 +9,7 @@ from struct import pack, unpack
 from pprint import pformat
 
 # generated code from *.proto message definitions
-from riakasaurus.transport.pbc import riak_kv_pb2, riak_pb2,riak_search_pb2
+from riakasaurus.transport.pbc import riak_kv_pb2, riak_pb2,riak_search_pb2,riak_yokozuna_pb2
 from riakasaurus import exceptions
 
 ## Protocol codes
@@ -48,6 +48,13 @@ MSG_CODE_COUNTER_UPDATE_REQ = 50
 MSG_CODE_COUNTER_UPDATE_RESP = 51
 MSG_CODE_COUNTER_GET_REQ = 52
 MSG_CODE_COUNTER_GET_RESP = 53
+MSG_CODE_YOKOZUNA_INDEX_GET_REQ = 54
+MSG_CODE_YOKOZUNA_INDEX_GET_RESP = 55
+MSG_CODE_YOKOZUNA_INDEX_PUT_REQ = 56
+MSG_CODE_YOKOZUNA_INDEX_DELETE_REQ = 57
+MSG_CODE_YOKOZUNA_SCHEMA_GET_REQ = 58
+MSG_CODE_YOKOZUNA_SCHEMA_GET_RESP = 59
+MSG_CODE_YOKOZUNA_SCHEMA_PUT_REQ = 60
 
 
 ## Inject PBC classes
@@ -86,7 +93,19 @@ RpbErrorResp = riak_pb2.RpbErrorResp
 RpbGetServerInfoResp = riak_pb2.RpbGetServerInfoResp
 RpbPair = riak_pb2.RpbPair
 
+RpbYokozunaIndex = riak_yokozuna_pb2.RpbYokozunaIndex
+RpbYokozunaIndexPutReq = riak_yokozuna_pb2.RpbYokozunaIndexPutReq
 
+RpbYokozunaIndexGetReq = riak_yokozuna_pb2.RpbYokozunaIndexGetReq
+RpbYokozunaIndexGetResp = riak_yokozuna_pb2.RpbYokozunaIndexGetResp
+
+RpbYokozunaIndexDeleteReq = riak_yokozuna_pb2.RpbYokozunaIndexDeleteReq
+RpbYokozunaIndexPutReq = riak_yokozuna_pb2.RpbYokozunaIndexPutReq
+
+RpbYokozunaSchema = riak_yokozuna_pb2.RpbYokozunaSchema
+RpbYokozunaSchemaGetReq = riak_yokozuna_pb2.RpbYokozunaSchemaGetReq
+RpbYokozunaSchemaGetResp = riak_yokozuna_pb2.RpbYokozunaSchemaGetResp
+RpbYokozunaSchemaPutReq = riak_yokozuna_pb2.RpbYokozunaSchemaPutReq
 def toHex(s):
     lst = []
     for ch in s:
@@ -116,6 +135,8 @@ class RiakPBC(Int32StringReceiver):
         MSG_CODE_INDEX_RESP: RpbIndexResp,
         MSG_CODE_SEARCH_QUERY_RESP: RpbSearchQueryResp,
         MSG_CODE_MAPRED_RESP:RpbMapRedResp,
+        MSG_CODE_YOKOZUNA_INDEX_GET_RESP:RpbYokozunaIndexGetResp,
+        MSG_CODE_YOKOZUNA_SCHEMA_GET_RESP:RpbYokozunaSchemaGetResp,
     }
 
     PBMessageTypes = {
@@ -148,6 +169,8 @@ class RiakPBC(Int32StringReceiver):
         26: 'INDEX_RESP',
         27: 'SEARCH_QUERY_REQ',
         28: 'SEARCH_QUERY_RESP',
+        55: 'MSG_CODE_YOKOZUNA_INDEX_GET_RESP',
+        59: 'MSG_CODE_YOKOZUNA_SCHEMA_GET_RESP',
     }
 
     nonMessages = (
@@ -235,6 +258,56 @@ class RiakPBC(Int32StringReceiver):
         req.stream = True
         d = self.__send(code, req)
         d.addCallback(lambda resp: resp)
+        return d
+
+    def create_search_index(self, index, schema=None, n_val=None):
+        code = pack('B', MSG_CODE_YOKOZUNA_INDEX_PUT_REQ)
+        idx = RpbYokozunaIndex(name=index)
+        if schema:
+            idx.schema = schema
+        if n_val:
+            idx.n_val = n_val
+        req = RpbYokozunaIndexPutReq(index=idx)
+
+        d = self.__send(code, req)
+        d.addCallback(lambda resp:resp)
+        return d
+
+    def get_search_index(self, index):
+        code = pack('B', MSG_CODE_YOKOZUNA_INDEX_GET_REQ)
+        req = RpbYokozunaIndexGetReq(name=index)
+        d = self.__send(code, req)
+        d.addCallback(lambda resp:resp)
+        return d
+
+    def delete_search_index(self, index):
+        code = pack('B', MSG_CODE_YOKOZUNA_INDEX_DELETE_REQ)
+        req = RpbYokozunaIndexDeleteReq(name=index)
+
+        d = self.__send(code, req)
+        d.addCallback(lambda resp:resp)
+        return d
+
+    def list_search_indexes(self):
+        code = pack('B', MSG_CODE_YOKOZUNA_INDEX_GET_REQ)
+        req = RpbYokozunaIndexGetReq()
+        d = self.__send(code, req)
+        d.addCallback(lambda resp:resp)
+        return d
+
+    def create_search_schema(self, schema, content):
+        code = pack('B', MSG_CODE_YOKOZUNA_SCHEMA_PUT_REQ)
+        scma = RpbYokozunaSchema(name=schema, content=content)
+        req = RpbYokozunaSchemaPutReq(schema=scma)
+        d = self.__send(code, req)
+        d.addCallback(lambda resp:resp)
+        return d
+
+    def get_search_schema(self, schema):
+        code = pack('B', MSG_CODE_YOKOZUNA_SCHEMA_GET_REQ)
+        req = RpbYokozunaSchemaGetReq(name=schema)
+        d = self.__send(code,req)
+        d.addCallback(lambda resp:resp)
         return d
 
     def put_new(self, bucket, key, content, vclock=None, **kwargs):

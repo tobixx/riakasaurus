@@ -514,6 +514,67 @@ class PBCTransport(transport.FeatureDetection):
                 defer.returnValue((results,None))
 
 
+    @defer.inlineCallbacks
+    def create_search_index(self, index, schema=None, n_val=None):
+        if not (yield self.pb_search_admin()):
+            raise NotImplementedError("Yokozuna administration is not "
+                                      "supported for this version")
+        with (yield self._getFreeTransport()) as transport:
+            ret = yield transport.create_search_index(index, schema=schema, n_val=n_val)
+            defer.returnValue(ret)
+
+    @defer.inlineCallbacks
+    def get_search_index(self, index):
+        if not (yield self.pb_search_admin()):
+            raise NotImplementedError("Yokozuna administration is not "
+                                      "supported for this version")
+        with (yield self._getFreeTransport()) as transport:
+            ret = yield transport.get_search_index(index)
+            defer.returnValue(ret)
+
+
+    @defer.inlineCallbacks
+    def delete_search_index(self, index):
+        if not (yield self.pb_search_admin()):
+            raise NotImplementedError("Yokozuna administration is not "
+                                      "supported for this version")
+        with (yield self._getFreeTransport()) as transport:
+            ret = yield transport.delete_search_index(index)
+            defer.returnValue(True)
+
+    @defer.inlineCallbacks
+    def list_search_indexes(self):
+        if not (yield self.pb_search_admin()):
+            raise NotImplementedError("Yokozuna administration is not "
+                                      "supported for this version")
+        with (yield self._getFreeTransport()) as transport:
+            ret = yield transport.list_search_indexes()
+            ret = [index for index in resp.index]
+            defer.returnValue(ret)
+
+    @defer.inlineCallbacks
+    def create_search_schema(self, schema, content):
+        if not (yield self.pb_search_admin()):
+            raise NotImplementedError("Yokozuna administration is not "
+                                      "supported for this version")
+        with (yield self._getFreeTransport()) as transport:
+            ret = yield transport.create_search_schema(schema,content)
+            defer.returnValue(True)
+
+    @defer.inlineCallbacks
+    def get_search_schema(self, schema):
+        if not (yield self.pb_search_admin()):
+            raise NotImplementedError("Yokozuna administration is not "
+                                      "supported for this version")
+        with (yield self._getFreeTransport()) as transport:
+            resp = yield transport.get_search_schema(schema)
+            result = {}
+            result['name'] = resp.schema.name
+            result['content'] = resp.schema.content
+            defer.returnValue(result)
+
+
+
     def parseRpbSearchResp(self,res):
         '''
         adatpor for a RpbSearchResp message

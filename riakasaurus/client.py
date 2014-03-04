@@ -65,6 +65,52 @@ class RiakClient(object):
     def get_transport(self):
         return self.transport
 
+    def create_search_index(self, index, schema=None, n_val=None):
+        """
+        create_search_index(index, schema, n_val)
+
+        Create a search index of the given name, and optionally set
+        a schema. If no schema is set, the default will be used.
+
+        :param index: the name of the index to create
+        :type index: string
+        :param schema: the schema that this index will follow
+        :type schema: string, None
+        :param n_val: this indexes N value
+        :type n_val: integer, None
+        """
+        return self.transport.create_search_index(index, schema, n_val)
+
+    def get_search_index(self, index):
+        """
+        Returns a yokozuna search index or None.
+        """
+        return self.transport.get_search_index(index)
+
+    def list_search_indexes(self):
+        """
+        Lists all yokozuna search indexes.
+        """
+        return self.transport.list_search_indexes()
+
+    def delete_search_index(self, index):
+        """
+        Deletes a yokozuna search index.
+        """
+        return self.transport.delete_search_index(index)
+
+    def create_search_schema(self, schema, content):
+        """
+        Creates a yokozuna search schema.
+        """
+        return self.transport.create_search_schema(schema,content)
+
+    def get_search_schema(self, schema):
+        """
+        Returns a yokozuna search schema.
+        """
+        return self.transport.get_search_schema(schema)
+
     def get_r(self):
         """
         Get the R-value setting for this RiakClient. (default 2)

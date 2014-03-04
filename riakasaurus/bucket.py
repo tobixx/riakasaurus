@@ -394,6 +394,15 @@ class RiakBucket(object):
         """
         return self.set_property('n_val', nval)
 
+    #TODO this function not apply to official way
+    def set_search_index(self,index):
+        return self.set_property('search_index',index)
+
+    @defer.inlineCallbacks
+    def get_search_index(self):
+        index = yield self.get_property('search_index')
+        defer.returnValue(index)
+
     def get_n_val(self):
         """
         Retrieve the N-value for this bucket.
@@ -577,11 +586,17 @@ class RiakBucket(object):
             yield self.set_property("search", False)
         defer.returnValue(True)
 
+    @defer.inlineCallbacks
     def search(self, query, **params):
         """
         Queries a search index over objects in this bucket/index.
         """
-        return self._client.solr().search(self._name, query, **params)
+        index = yield self.get_search_index()
+        if index:
+            res = yield self._client.solr().search(index, query, **params)
+            defer.returnValue(res)
+        else:
+            raise Exception("Current bucket haven't bind to a search index yet")
 
     def get_index(self, index, startkey, endkey=None, return_terms=None,
                   max_results=None,continuation=None):
