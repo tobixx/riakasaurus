@@ -549,7 +549,7 @@ class PBCTransport(transport.FeatureDetection):
                                       "supported for this version")
         with (yield self._getFreeTransport()) as transport:
             ret = yield transport.list_search_indexes()
-            ret = [index for index in resp.index]
+            ret = [index for index in ret.index]
             defer.returnValue(ret)
 
     @defer.inlineCallbacks

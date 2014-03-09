@@ -9,7 +9,7 @@ from struct import pack, unpack
 from pprint import pformat
 
 # generated code from *.proto message definitions
-from riakasaurus.transport.pbc import riak_kv_pb2, riak_pb2,riak_search_pb2,riak_yokozuna_pb2
+from riakasaurus.transport.pbc import riak_kv_pb2, riak_pb2,riak_search_pb2,riak_yokozuna_pb2,riak_dt_pb2
 from riakasaurus import exceptions
 
 ## Protocol codes
@@ -55,7 +55,10 @@ MSG_CODE_YOKOZUNA_INDEX_DELETE_REQ = 57
 MSG_CODE_YOKOZUNA_SCHEMA_GET_REQ = 58
 MSG_CODE_YOKOZUNA_SCHEMA_GET_RESP = 59
 MSG_CODE_YOKOZUNA_SCHEMA_PUT_REQ = 60
-
+MSG_CODE_DATATYPE_FETCH_REQ = 80
+MSG_CODE_DATATYPE_FETCH_RESP = 81
+MSG_CODE_DATATYPE_UPDATE_REQ = 82
+MSG_CODE_DATATYPE_UPDATE_RESP = 83
 
 ## Inject PBC classes
 
@@ -106,6 +109,22 @@ RpbYokozunaSchema = riak_yokozuna_pb2.RpbYokozunaSchema
 RpbYokozunaSchemaGetReq = riak_yokozuna_pb2.RpbYokozunaSchemaGetReq
 RpbYokozunaSchemaGetResp = riak_yokozuna_pb2.RpbYokozunaSchemaGetResp
 RpbYokozunaSchemaPutReq = riak_yokozuna_pb2.RpbYokozunaSchemaPutReq
+
+
+DtFetchReq = riak_dt_pb2.DtFetchReq
+DtFetchResp = riak_dt_pb2.DtFetchResp
+DtUpdateReq = riak_dt_pb2.DtUpdateReq
+DtUpdateResp = riak_dt_pb2.DtUpdateResp
+
+CounterOp = riak_dt_pb2.CounterOp
+SetOp = riak_dt_pb2.SetOp
+MapOp = riak_dt_pb2.MapOp
+DtOp = riak_dt_pb2.DtOp
+
+MapField = riak_dt_pb2.MapField
+MapEntry = riak_dt_pb2.MapEntry
+MapUpdate = riak_dt_pb2.MapUpdate
+
 def toHex(s):
     lst = []
     for ch in s:
@@ -283,7 +302,6 @@ class RiakPBC(Int32StringReceiver):
     def delete_search_index(self, index):
         code = pack('B', MSG_CODE_YOKOZUNA_INDEX_DELETE_REQ)
         req = RpbYokozunaIndexDeleteReq(name=index)
-
         d = self.__send(code, req)
         d.addCallback(lambda resp:resp)
         return d
@@ -485,7 +503,7 @@ class RiakPBC(Int32StringReceiver):
         code = pack('B', MSG_CODE_GET_BUCKET_REQ)
         request = RpbGetBucketReq()
         request.bucket = bucket
-        return self.__send(code + request.SerializeToString())
+        return self.__send(code,request)
 
     def setBucketProperties(self, bucket, **kwargs):
         code = pack('B', MSG_CODE_SET_BUCKET_REQ)
@@ -581,7 +599,6 @@ class RiakPBC(Int32StringReceiver):
             if not self.factory.d.called:
                 self.factory.d.callback(True)
             return
-
         elif code == MSG_CODE_MAPRED_RESP:
             # listKeys is special as it returns multiple response messages
             # each message can contain multiple keys
@@ -619,7 +636,6 @@ class RiakPBC(Int32StringReceiver):
                     self.factory.d.callback(self.__indexResultList)
                     self.__indexResultList = []
 
-
         elif code == MSG_CODE_LIST_KEYS_RESP:
             # listKeys is special as it returns multiple response messages
             # each message can contain multiple keys
@@ -640,7 +656,6 @@ class RiakPBC(Int32StringReceiver):
                 if not self.factory.d.called:
                     self.factory.d.callback(self.__keyList)
                     self.__keyList = []
-
         else:
             # normal handling, pick the message code, call ParseFromString()
             # on it, and return the message
@@ -654,14 +669,12 @@ class RiakPBC(Int32StringReceiver):
                         response.__class__.__name__,
                         str(response).replace('\n', ' ')
                     )
-
                 if code == MSG_CODE_ERROR_RESP:
                     returnOrRaiseException('%s (%d)' % (
                         response.errmsg, response.errcode)
                     )
-
-            if not self.factory.d.called:
-                self.factory.d.callback(response)
+                if not self.factory.d.called:
+                    self.factory.d.callback(response)
 
     def _resolveNums(self, val):
         if isinstance(val, str):
