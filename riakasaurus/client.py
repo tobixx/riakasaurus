@@ -15,7 +15,6 @@ from riakasaurus import mapreduce, bucket
 from riakasaurus.search import RiakSearch
 
 from riakasaurus import transport
-from riakasaurus.datatypes import TYPES
 
 
 class RiakClient(object):
@@ -431,7 +430,7 @@ class RiakClient(object):
                                             w=w, dw=dw, pw=pw,
                                             returnvalue=returnvalue)
 
-    def fetch_datatype(self, transport, bucket, key, r=None, pr=None,
+    def fetch_datatype(self, bucket, key, r=None, pr=None,
                        basic_quorum=None, notfound_ok=None, timeout=None,
                        include_context=None):
         """
@@ -466,13 +465,13 @@ class RiakClient(object):
         :rtype: a subclass of :class:`~riak.datatypes.Datatype`
         """
 
-        result = transport.fetch_datatype(bucket, key, r=r, pr=pr,
+        return self.transport.fetch_datatype(bucket, key, r=r, pr=pr,
                                           basic_quorum=basic_quorum,
                                           notfound_ok=notfound_ok,
                                           timeout=timeout,
                                           include_context=include_context)
-        return TYPES[result[0]](result[1], result[2])
 
+    @defer.inlineCallbacks
     def update_datatype(self, datatype, bucket, key=None, w=None, dw=None,
                         pw=None, return_body=None, timeout=None,
                         include_context=None):
@@ -502,16 +501,13 @@ class RiakClient(object):
         :rtype: a subclass of :class:`~riak.datatypes.Datatype`, bool
         """
 
-        with self._transport() as transport:
-            result = transport.update_type(datatype, bucket, key=key, w=w,
+        return self.transport.update_type(datatype, bucket,
+                                           key=key, w=w,
                                            dw=dw, pw=pw,
                                            return_body=return_body,
                                            timeout=timeout,
                                            include_context=include_context)
-            if return_body and result:
-                return TYPES[result[0]](result[1], result[2])
-            else:
-                return result
+                #defer.returnValue( TYPES[result[0]](result[1], result[2]) )
 
     def modify_datatype(self, bucket, key, r=None, pr=None, w=None, dw=None,
                         pw=None, basic_quorum=None, notfound_ok=None,
@@ -554,9 +550,10 @@ class RiakClient(object):
         uparams = dict(w=w, dw=dw, pw=pw, timeout=timeout,
                        include_context=include_context)
 
-        dt = self.fetch_datatype(bucket, key, **fparams)
-        yield dt
-        self.update_datatype(dt, bucket, key, **uparams)
+        d = self.fetch_datatype(bucket, key, **fparams)
+        d.addCallback(self.update_datatype, bucket, key, **uparams)
+        d.addErrback(log.err)
+        return d
 
 if __name__ == "__main__":
     pass

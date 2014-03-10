@@ -1,4 +1,4 @@
-from riak.datatypes.datatype import Datatype
+from riakasaurus.datatypes.datatype import Datatype
 
 
 class Flag(Datatype):
@@ -8,9 +8,11 @@ class Flag(Datatype):
     instances.
     """
 
-    _op = None
-    _value = False
-    _type_error_msg = "Flags can only be booleans"
+    def __init__(self,*args,**kwargs):
+        super(Flag,self).__init__(*args,**kwargs)
+        self._op = None
+        self._value = False if self._value==None else self._value
+        self._type_error_msg = "Flags can only be booleans"
 
     @Datatype.dirty_value.getter
     def dirty_value(self):
@@ -44,6 +46,5 @@ class Flag(Datatype):
         """
         return self._op
 
-    @classmethod
-    def _check_type(new_value):
+    def _check_type(self,new_value):
         return isinstance(new_value, bool)

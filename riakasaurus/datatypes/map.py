@@ -1,11 +1,27 @@
 from collections import Mapping
-from riak.util import lazy_property
-from riak.datatypes.datatype import Datatype
-from riak.datatypes.counter import Counter
-from riak.datatypes.flag import Flag
-from riak.datatypes.register import Register
-from riak.datatypes.set import Set
+from riakasaurus.datatypes.datatype import Datatype
+from riakasaurus.datatypes.counter import Counter
+from riakasaurus.datatypes.flag import Flag
+from riakasaurus.datatypes.register import Register
+from riakasaurus.datatypes.set import Set
 
+class lazy_property(object):
+    '''
+    A method decorator meant to be used for lazy evaluation and
+    memoization of an object attribute. The property should represent
+    immutable data, as it replaces itself on first access.
+    '''
+
+    def __init__(self, fget):
+        self.fget = fget
+        self.func_name = fget.__name__
+
+    def __get__(self, obj, cls):
+        if obj is None:
+            return None
+        value = self.fget(obj)
+        setattr(obj, self.func_name, value)
+        return value
 
 class TypedMapView(Mapping):
     """
@@ -72,13 +88,17 @@ class Map(Mapping, Datatype):
         map.registers['name']
         del map.counters['likes']
     """
-    _value = {}
-    _removes = set()
-    _updates = {}
-    _adds = set()
-    _type_error_msg = "Map must be a dict with (name, type) keys"
+
+    def __init__(self,*args,**kwargs):
+        super(Map,self).__init__(*args,**kwargs)
+        self._value = {} if self._value==None else self._value
+        self._removes = set()
+        self._updates = {}
+        self._adds = set()
+        self._type_error_msg = "Map must be a dict with (name, type) keys"
 
     @lazy_property
+    #@property
     def counters(self):
         """
         Filters keys in the map to only those of counter types. Example::
@@ -90,6 +110,7 @@ class Map(Mapping, Datatype):
         return TypedMapView(self, 'counter')
 
     @lazy_property
+    #@property
     def flags(self):
         """
         Filters keys in the map to only those of flag types. Example::
@@ -102,6 +123,7 @@ class Map(Mapping, Datatype):
         return TypedMapView(self, 'flag')
 
     @lazy_property
+    #@property
     def maps(self):
         """
         Filters keys in the map to only those of map types. Example::
@@ -113,6 +135,7 @@ class Map(Mapping, Datatype):
         return TypedMapView(self, 'map')
 
     @lazy_property
+    #@property
     def registers(self):
         """
         Filters keys in the map to only those of register types. Example::
@@ -124,6 +147,7 @@ class Map(Mapping, Datatype):
         return TypedMapView(self, 'register')
 
     @lazy_property
+    #@property
     def sets(self):
         """
         Filters keys in the map to only those of set types. Example::
@@ -235,9 +259,9 @@ class Map(Mapping, Datatype):
         """
         dvalue = {}
         for key in self._value:
-            dvalue[key] = self._value[key].dirty_value()
+            dvalue[key] = self._value[key].dirty_value
         for key in self._updates:
-            dvalue[key] = self._updates[key].dirty_value()
+            dvalue[key] = self._updates[key].dirty_value
         for key in self._removes:
             del dvalue[key]
         return dvalue
@@ -272,7 +296,6 @@ class Map(Mapping, Datatype):
         else:
             return None
 
-    @classmethod
     def _check_type(self, value):
         for key in value:
             try:
@@ -281,8 +304,7 @@ class Map(Mapping, Datatype):
                 return False
         return True
 
-    @classmethod
-    def _coerce_value(new_value):
+    def _coerce_value(self,new_value):
         cvalue = {}
         for key in new_value:
             cvalue[key] = TYPES[key[1]](new_value[key])

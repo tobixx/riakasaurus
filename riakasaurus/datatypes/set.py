@@ -1,12 +1,15 @@
 import collections
-from riak.datatypes.datatype import Datatype
+from riakasaurus.datatypes.datatype import Datatype
 
 
 class Set(collections.Set, Datatype):
-    _value = frozenset()
-    _adds = set()
-    _removes = set()
-    _type_error_msg = "Sets can only be iterables of strings"
+
+    def __init__(self,*args,**kwargs):
+        super(Set,self).__init__(*args,**kwargs)
+        self._value = frozenset() if self._value==None else self._value
+        self._adds = set()
+        self._removes = set()
+        self._type_error_msg = "Sets can only be iterables of strings"
 
     @Datatype.dirty_value.getter
     def dirty_value(self):
@@ -72,14 +75,17 @@ class Set(collections.Set, Datatype):
         :type element: str
         """
         self._check_element(element)
-        self._removes.add(element)
+        if element in self._adds:
+            self._adds.remove(element)
+        elif element in self._value:
+            self._removes.add(element)
+        else:
+            raise Exception("Element not in set")
 
-    @classmethod
-    def _coerce_value(new_value):
+    def _coerce_value(self,new_value):
         return frozenset(new_value)
 
-    @classmethod
-    def _check_value(new_value):
+    def _check_type(self,new_value):
         if not isinstance(new_value, collections.Iterable):
             return False
         for element in new_value:
@@ -87,7 +93,6 @@ class Set(collections.Set, Datatype):
                 return False
         return True
 
-    @classmethod
-    def _check_element(element):
+    def _check_element(self,element):
         if not isinstance(element, basestring):
             raise TypeError("Set elements can only be strings")

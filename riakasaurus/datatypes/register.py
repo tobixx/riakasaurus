@@ -1,5 +1,5 @@
 from collections import Sized
-from riak.datatypes.datatype import Datatype
+from riakasaurus.datatypes.datatype import Datatype
 
 
 class Register(Sized, Datatype):
@@ -9,9 +9,11 @@ class Register(Sized, Datatype):
     :class:`~riak.datatypes.Map` instances.
     """
 
-    _value = ""
-    _new_value = None
-    _type_error_msg = "Registers can only be strings"
+    def __init__(self,*args,**kwargs):
+        super(Register,self).__init__(*args,**kwargs)
+        self._value = "" if self._value==None else self._value
+        self._new_value = None
+        self._type_error_msg = "Registers can only be strings"
 
     @Datatype.dirty_value.getter
     def dirty_value(self):
@@ -43,7 +45,7 @@ class Register(Sized, Datatype):
         if self._new_value is not None:
             return self._new_value
 
-    def assign(self, new_value):
+    def set(self, new_value):
         """
         Assigns a new value to the register.
 
@@ -56,6 +58,5 @@ class Register(Sized, Datatype):
     def __len__(self):
         return len(self.value)
 
-    @classmethod
-    def _check_value(new_value):
+    def _check_type(self,new_value):
         return isinstance(new_value, basestring)

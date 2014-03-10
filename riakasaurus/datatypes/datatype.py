@@ -5,15 +5,15 @@ class Datatype(object):
     all datatype wrappers.
     """
 
-    _value = None
-    _context = None
-    _type_error_msg = "Invalid value type"
 
     def __init__(self, value=None, context=None):
         if value is not None:
             self._raise_if_badtype(value)
             self._value = self._coerce_value(value)
+        else:
+            self._value = value
         self._context = context
+        self._type_error_msg = "Invalid value type"
 
     @property
     def value(self):
@@ -58,8 +58,7 @@ class Datatype(object):
         """
         raise NotImplementedError
 
-    @classmethod
-    def _check_type(new_value):
+    def _check_type(self,new_value):
         """
         Checks that initial values of the type are appropriate. Each
         type must implement this method.
@@ -68,8 +67,7 @@ class Datatype(object):
         """
         raise NotImplementedError
 
-    @classmethod
-    def _coerce_value(new_value):
+    def _coerce_value(self,new_value):
         """
         Coerces the input value into the internal representation for
         the type. Datatypes will usually override this method.

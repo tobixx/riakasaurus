@@ -7,8 +7,12 @@ class Counter(Datatype):
     incremented or decremented. This type can stand on its own or be
     embedded within a :class:`~riak.datatypes.Map`.
     """
-    _increment = 0
-    _type_error_msg = "Counters can only be integers"
+
+    def __init__(self,*args,**kwargs):
+        super(Counter,self).__init__(*args,**kwargs)
+        self._value = 0 if self._value==None else self._value
+        self._increment = 0
+        self._type_error_msg = "Counters can only be integers"
 
     @Datatype.dirty_value.getter
     def dirty_value(self):
@@ -44,6 +48,5 @@ class Counter(Datatype):
         self._raise_if_badtype(amount)
         self._increment -= amount
 
-    @classmethod
-    def _check_type(new_value):
+    def _check_type(self,new_value):
         return isinstance(new_value, int)

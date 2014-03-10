@@ -27,6 +27,7 @@ LOGLEVEL_TRANSPORT = 2
 LOGLEVEL_TRANSPORT_VERBOSE = 4
 
 
+
 class StatefulTransport(object):
     def __init__(self,factory):
         self.__transport = None
@@ -455,6 +456,90 @@ class PBCTransport(transport.FeatureDetection):
             defer.returnValue(ret)
 
 
+    @defer.inlineCallbacks
+    def fetch_datatype(self, bucket, key, r=None, pr=None,
+                       basic_quorum=None, notfound_ok=None, timeout=None,
+                       include_context=None):
+        """
+        fetch_datatype(bucket, key, r=None, pr=None, basic_quorum=None,
+                       notfound_ok=None, timeout=None, include_context=None)
+
+        Fetches the value of a Riak Datatype.
+
+        .. note:: This request is automatically retried :attr:`retries`
+           times if it fails due to network error.
+
+        :param bucket: the bucket of the datatype, which must belong to a
+          :class:`~riak.BucketType`
+        :type bucket: RiakBucket
+        :param key: the key of the datatype
+        :type key: string
+        :param r: the read quorum
+        :type r: integer, string, None
+        :param pr: the primary read quorum
+        :type pr: integer, string, None
+        :param basic_quorum: whether to use the "basic quorum" policy
+           for not-founds
+        :type basic_quorum: bool
+        :param notfound_ok: whether to treat not-found responses as successful
+        :type notfound_ok: bool
+        :param timeout: a timeout value in milliseconds
+        :type timeout: int
+        :param include_context: whether to return the opaque context
+          as well as the value, which is useful for removal operations
+          on sets and maps
+        :type include_context: bool
+        :rtype: a subclass of :class:`~riak.datatypes.Datatype`
+        """
+
+        with (yield self._getFreeTransport()) as transport:
+            result = yield transport.fetch_datatype(bucket, key, r=r, pr=pr,
+                                              basic_quorum=basic_quorum,
+                                              notfound_ok=notfound_ok,
+                                              timeout=timeout,
+                                              include_context=include_context)
+            defer.returnValue(result)
+
+    @defer.inlineCallbacks
+    def update_datatype(self, datatype, bucket, key=None, w=None, dw=None,
+                        pw=None, return_body=None, timeout=None,
+                        include_context=None):
+        """
+        Updates a Riak Datatype. This operation is not idempotent and
+        so will not be retried automatically.
+
+        :param datatype: the datatype to update
+        :type datatype: a subclass of :class:`~riak.datatypes.Datatype`
+        :param bucket: the bucket of the datatype, which must belong to a
+          :class:`~riak.BucketType`
+        :type bucket: RiakBucket
+        :param key: the key of the datatype
+        :type key: string, None
+        :param w: the write quorum
+        :type w: integer, string, None
+        :param dw: the durable write quorum
+        :type dw: integer, string, None
+        :param pw: the primary write quorum
+        :type pw: integer, string, None
+        :param timeout: a timeout value in milliseconds
+        :type timeout: int
+        :param include_context: whether to return the opaque context
+          as well as the value, which is useful for removal operations
+          on sets and maps
+        :type include_context: bool
+        :rtype: a subclass of :class:`~riak.datatypes.Datatype`, bool
+        """
+        with (yield self._getFreeTransport()) as transport:
+            result = yield transport.update_type(datatype, bucket, key=key, w=w,
+                                           dw=dw, pw=pw,
+                                           return_body=return_body,
+                                           timeout=timeout,
+                                           include_context=include_context)
+            defer.returnValue(result)
+            #if return_body and result:
+                #defer.returnValue( TYPES[result[0]](result[1], result[2]) )
+            #else:
+                #defer.returnValue( result )
 
     @defer.inlineCallbacks
     def set_bucket_props(self, bucket, props):

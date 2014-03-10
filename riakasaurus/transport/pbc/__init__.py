@@ -11,6 +11,9 @@ from pprint import pformat
 # generated code from *.proto message definitions
 from riakasaurus.transport.pbc import riak_kv_pb2, riak_pb2,riak_search_pb2,riak_yokozuna_pb2,riak_dt_pb2
 from riakasaurus import exceptions
+from riakasaurus.datatypes import TYPES
+from riakasaurus.datatypes import Set,Map,Counter #top class crdt
+from riakasaurus.datatypes import Flag,Register #secondary class crdt
 
 ## Protocol codes
 MSG_CODE_ERROR_RESP = 0
@@ -363,6 +366,129 @@ class RiakPBC(Int32StringReceiver):
         return d
 
 
+    @defer.inlineCallbacks
+    def fetch_datatype(self, bucket, key, r=None, pr=None,
+                       basic_quorum=None, notfound_ok=None, timeout=None,
+                       include_context=None):
+        """
+        fetch_datatype(bucket, key, r=None, pr=None, basic_quorum=None,
+                       notfound_ok=None, timeout=None, include_context=None)
+
+        Fetches the value of a Riak Datatype.
+
+        .. note:: This request is automatically retried :attr:`retries`
+           times if it fails due to network error.
+
+        :param bucket: the bucket of the datatype, which must belong to a
+          :class:`~riak.BucketType`
+        :type bucket: RiakBucket
+        :param key: the key of the datatype
+        :type key: string
+        :param r: the read quorum
+        :type r: integer, string, None
+        :param pr: the primary read quorum
+        :type pr: integer, string, None
+        :param basic_quorum: whether to use the "basic quorum" policy
+           for not-founds
+        :type basic_quorum: bool
+        :param notfound_ok: whether to treat not-found responses as successful
+        :type notfound_ok: bool
+        :param timeout: a timeout value in milliseconds
+        :type timeout: int
+        :param include_context: whether to return the opaque context
+          as well as the value, which is useful for removal operations
+          on sets and maps
+        :type include_context: bool
+        :rtype: a subclass of :class:`~riak.datatypes.Datatype`
+        """
+        result = yield transport.fetch_datatype(bucket, key, r=r, pr=pr,
+                                          basic_quorum=basic_quorum,
+                                          notfound_ok=notfound_ok,
+                                          timeout=timeout,
+                                          include_context=include_context)
+        defer.returnValue( TYPES[result[0]](result[1], result[2]) )
+
+    @defer.inlineCallbacks
+    def update_datatype(self, datatype, bucket, key=None, w=None, dw=None,
+                        pw=None, return_body=None, timeout=None,
+                        include_context=None):
+        """
+        Updates a Riak Datatype. This operation is not idempotent and
+        so will not be retried automatically.
+
+        :param datatype: the datatype to update
+        :type datatype: a subclass of :class:`~riak.datatypes.Datatype`
+        :param bucket: the bucket of the datatype, which must belong to a
+          :class:`~riak.BucketType`
+        :type bucket: RiakBucket
+        :param key: the key of the datatype
+        :type key: string, None
+        :param w: the write quorum
+        :type w: integer, string, None
+        :param dw: the durable write quorum
+        :type dw: integer, string, None
+        :param pw: the primary write quorum
+        :type pw: integer, string, None
+        :param timeout: a timeout value in milliseconds
+        :type timeout: int
+        :param include_context: whether to return the opaque context
+          as well as the value, which is useful for removal operations
+          on sets and maps
+        :type include_context: bool
+        :rtype: a subclass of :class:`~riak.datatypes.Datatype`, bool
+        """
+        op = self.encode_operation(datatype)
+
+        result = yield transport.update_type(datatype, bucket, key=key, w=w,
+                                       dw=dw, pw=pw,
+                                       return_body=return_body,
+                                       timeout=timeout,
+                                       include_context=include_context)
+        if return_body and result:
+            defer.returnValue( TYPES[result[0]](result[1], result[2]) )
+        else:
+            defer.returnValue( result )
+
+    def encode_operation(self,datatype):
+        op = None
+        if isinstance(datatype,Counter):
+            op = self.encode_counter_op(datatype)
+        elif isinstance(datatype,Set):
+            op = self.encode_set_op(datatype)
+        elif isinstance(datatype,Map):
+            op = self.encode_map_op(datatype)
+        elif isinstance(datatype,Flag):
+            op = self.encode_flag_op(datatype)
+        elif isinstance(datatype,Register):
+            raise NotImplemented()
+        else:
+            raise NotImplemented()
+        return op
+
+    def encode_counter_op(self,datatype):
+        incr = datatype.to_op()
+        if incr == 0:
+            raise Exception("Counter update cannot be 0")
+        o = CounterOp()
+        o.increment = incr
+        op = DtOp()
+        op.counter_op=o
+        return op
+
+    def encode_set_op(self,datatype):
+        changes = datatype.to_op()
+        add_op = changes['adds']
+        remove_op = changes['removes']
+        for o in add_op:
+            op.adds.append(o)
+        for o in remove_op:
+            op.removes.append(o)
+        op = DtOp()
+        op.set_op = op
+        return op
+
+    def encode_map_op(self,datatype):
+        changes = datatype.to_op()
 
     def put(self, bucket, key, content, vclock=None, **kwargs):
         code = pack('B', MSG_CODE_PUT_REQ)
