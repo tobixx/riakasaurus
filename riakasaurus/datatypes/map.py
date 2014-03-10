@@ -87,15 +87,21 @@ class Map(Mapping, Datatype):
         map.sets['emails']
         map.registers['name']
         del map.counters['likes']
+
+    init a test object 
+    Map({('test_set','set'):Set(['123','223','333'])})
+    Map({('test_map','map'):{('inner_counter','counter'):1}})
+    Map({('test_map','map'):{('inner_counter','counter'):1},('test_set','set'):Set(['123','223','333'])})
+    
     """
 
     def __init__(self,*args,**kwargs):
+        self._type_error_msg = "Map must be a dict with (name, type) keys"
         super(Map,self).__init__(*args,**kwargs)
         self._value = {} if self._value==None else self._value
         self._removes = set()
         self._updates = {}
         self._adds = set()
-        self._type_error_msg = "Map must be a dict with (name, type) keys"
         self._counters = None
         self._flags = None
         self._maps = None
@@ -241,9 +247,11 @@ class Map(Mapping, Datatype):
         # things that don't appear in the value!
         if key not in self._adds:
             self._removes.add(key)
+        else:
+            self._adds.discard(key)
         self._check_key(key)
-        self._adds.discard(key)
-        del self._updates[key]
+        if key in self._updates:
+            del self._updates[key]
 
     def add(self, key):
         """
@@ -296,7 +304,7 @@ class Map(Mapping, Datatype):
         """
         pvalue = {}
         for key in self._value:
-            pvalue[key] = self._value[key].value()
+            pvalue[key] = self._value[key].value
         return pvalue
 
     def to_op(self):
