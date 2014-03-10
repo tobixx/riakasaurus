@@ -96,6 +96,11 @@ class Map(Mapping, Datatype):
         self._updates = {}
         self._adds = set()
         self._type_error_msg = "Map must be a dict with (name, type) keys"
+        self._counters = None
+        self._flags = None
+        self._maps = None
+        self._sets = None
+        self._registers = None
 
     @lazy_property
     #@property
@@ -107,7 +112,9 @@ class Map(Mapping, Datatype):
             map.counters.add('likes')  # adds an empty counter to the map
             del map.counters['points']
         """
-        return TypedMapView(self, 'counter')
+        if not self._counters:
+            self._counters = TypedMapView(self, 'counter')
+        return self._counters
 
     @lazy_property
     #@property
@@ -120,7 +127,9 @@ class Map(Mapping, Datatype):
                                     # flag to the map
             del map.flags['attending']
         """
-        return TypedMapView(self, 'flag')
+        if not self._flags:
+            self._flags = TypedMapView(self, 'flag')
+        return self._flags
 
     @lazy_property
     #@property
@@ -132,7 +141,9 @@ class Map(Mapping, Datatype):
             map.maps.add('addresses') # adds an empty nested map to the map
             del map.maps['spam']
         """
-        return TypedMapView(self, 'map')
+        if not self._maps:
+            self._maps = TypedMapView(self, 'map')
+        return self._maps
 
     @lazy_property
     #@property
@@ -144,7 +155,9 @@ class Map(Mapping, Datatype):
             map.registers.add('phone') # adds an empty register to the map
             del map.registers['access_key']
         """
-        return TypedMapView(self, 'register')
+        if not self._registers:
+            self._registers = TypedMapView(self, 'register')
+        return self._registers
 
     @lazy_property
     #@property
@@ -156,7 +169,10 @@ class Map(Mapping, Datatype):
             map.sets.add('followers') # adds an empty set to the map
             del map.sets['favorites']
         """
-        return TypedMapView(self, 'set')
+        if not self._sets:
+            self._sets = TypedMapView(self, 'set')
+        return self._sets
+
 
     def __contains__(self, key):
         """
@@ -185,6 +201,8 @@ class Map(Mapping, Datatype):
         self._removes.discard(key)
         if key in self._value:
             return self._value[key]
+        elif key in self._updates.keys():
+            return self._updates[key]
         else:
             # If the key does not exist, we assume they are wanting to
             # create a new one with that name/type.
@@ -221,10 +239,11 @@ class Map(Mapping, Datatype):
         """
         # NB: deleting a key only marks it deleted, and you can delete
         # things that don't appear in the value!
+        if key not in self._adds:
+            self._removes.add(key)
         self._check_key(key)
         self._adds.discard(key)
         del self._updates[key]
-        self._removes.add(key)
 
     def add(self, key):
         """
