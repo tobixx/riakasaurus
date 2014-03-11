@@ -57,10 +57,7 @@ class Tests(unittest.TestCase):
         self.client = riak.RiakClient(client_id=RIAK_CLIENT_ID,transport=transport.PBCTransport,port = 8087)
         self.bucket_name = BUCKET_PREFIX + self.id().rsplit('.', 1)[-1]
         self.bucket = self.client.bucket(self.bucket_name)
-        try:
-            schema = yield self.client.get_search_schema('default')
-        except:
-            yield self.client.create_search_index('default')
+        s = yield self.client.list_search_indexes()
         try:
             schema = yield self.client.get_search_schema('test_schema')
         except:
@@ -100,25 +97,27 @@ class Tests(unittest.TestCase):
 </schema>'''
             yield self.client.create_search_schema("test_schema",schema_content)
         try:
-            index = yield self.client.get_search_index('test_index')
+            indexes = yield self.client.get_search_index('test_index')
         except:
             print 'Index test_index not existed'
             yield self.client.create_search_index('test_index',schema='test_schema')
+        current_index = yield self.bucket.get_search_index()
+        if current_index != 'test_index':
             yield self.bucket.set_search_index('test_index')
+        current_index = yield self.bucket.get_search_index()
+        print 'Current index is %s' %current_index
 
     @defer.inlineCallbacks
     def tearDown(self):
         yield self.bucket.purge_keys()
         yield self.client.transport.quit()
         #yield self.client.delete_search_index('test_index')
+        #print 'Deleted index test_index' 
 
     @defer.inlineCallbacks
     def test_list_search_index(self):
         res = yield self.client.list_search_indexes()
-        yield self.bucket.set_search_index('default')
-        #yield self.client.list_search_indexes()
-        a = yield self.bucket.get_search_index()
-        self.assertEqual(a,'default')
+        print res
 
 
     @defer.inlineCallbacks

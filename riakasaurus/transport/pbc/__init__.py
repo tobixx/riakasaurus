@@ -290,7 +290,6 @@ class RiakPBC(Int32StringReceiver):
         if n_val:
             idx.n_val = n_val
         req = RpbYokozunaIndexPutReq(index=idx)
-
         d = self.__send(code, req)
         d.addCallback(lambda resp:resp)
         return d
@@ -799,8 +798,8 @@ class RiakPBC(Int32StringReceiver):
                     returnOrRaiseException('%s (%d)' % (
                         response.errmsg, response.errcode)
                     )
-                if not self.factory.d.called:
-                    self.factory.d.callback(response)
+            if not self.factory.d.called:
+                self.factory.d.callback(response)
 
     def _resolveNums(self, val):
         if isinstance(val, str):
