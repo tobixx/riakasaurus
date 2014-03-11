@@ -11,9 +11,6 @@ from pprint import pformat
 # generated code from *.proto message definitions
 from riakasaurus.transport.pbc import riak_kv_pb2, riak_pb2,riak_search_pb2,riak_yokozuna_pb2,riak_dt_pb2
 from riakasaurus import exceptions
-from riakasaurus.datatypes import TYPES
-from riakasaurus.datatypes import Set,Map,Counter #top class crdt
-from riakasaurus.datatypes import Flag,Register #secondary class crdt
 
 ## Protocol codes
 MSG_CODE_ERROR_RESP = 0
@@ -119,14 +116,6 @@ DtFetchResp = riak_dt_pb2.DtFetchResp
 DtUpdateReq = riak_dt_pb2.DtUpdateReq
 DtUpdateResp = riak_dt_pb2.DtUpdateResp
 
-CounterOp = riak_dt_pb2.CounterOp
-SetOp = riak_dt_pb2.SetOp
-MapOp = riak_dt_pb2.MapOp
-DtOp = riak_dt_pb2.DtOp
-
-MapField = riak_dt_pb2.MapField
-MapEntry = riak_dt_pb2.MapEntry
-MapUpdate = riak_dt_pb2.MapUpdate
 
 def toHex(s):
     lst = []
@@ -159,6 +148,10 @@ class RiakPBC(Int32StringReceiver):
         MSG_CODE_MAPRED_RESP:RpbMapRedResp,
         MSG_CODE_YOKOZUNA_INDEX_GET_RESP:RpbYokozunaIndexGetResp,
         MSG_CODE_YOKOZUNA_SCHEMA_GET_RESP:RpbYokozunaSchemaGetResp,
+        MSG_CODE_YOKOZUNA_INDEX_GET_RESP:RpbYokozunaIndexGetResp,
+        MSG_CODE_YOKOZUNA_SCHEMA_GET_RESP:RpbYokozunaSchemaGetResp,
+        MSG_CODE_DATATYPE_FETCH_RESP:DtFetchResp,
+        MSG_CODE_DATATYPE_UPDATE_RESP:DtUpdateResp,
     }
 
     PBMessageTypes = {
@@ -366,9 +359,7 @@ class RiakPBC(Int32StringReceiver):
 
 
     @defer.inlineCallbacks
-    def fetch_datatype(self, bucket, key, r=None, pr=None,
-                       basic_quorum=None, notfound_ok=None, timeout=None,
-                       include_context=None):
+    def fetch_datatype(self, bucket, key, *args,**kwargs):
         """
         fetch_datatype(bucket, key, r=None, pr=None, basic_quorum=None,
                        notfound_ok=None, timeout=None, include_context=None)
@@ -400,17 +391,17 @@ class RiakPBC(Int32StringReceiver):
         :type include_context: bool
         :rtype: a subclass of :class:`~riak.datatypes.Datatype`
         """
-        result = yield transport.fetch_datatype(bucket, key, r=r, pr=pr,
-                                          basic_quorum=basic_quorum,
-                                          notfound_ok=notfound_ok,
-                                          timeout=timeout,
-                                          include_context=include_context)
-        defer.returnValue( TYPES[result[0]](result[1], result[2]) )
+        code = pack('B', MSG_CODE_DATATYPE_FETCH_REQ)
+        req = DtFetchReq()
+        for attr in ['r','pr','basic_quorum','notfound_ok','timeout,include_context']:
+            if kwargs.get(attr,''):
+                setattr(req,attr,kwargs[attr])
+        d = self.__send(code, req)
+        d.addCallback(lambda resp: resp) #need to parse and init the result here
+        return d
 
     @defer.inlineCallbacks
-    def update_datatype(self, datatype, bucket, key=None, w=None, dw=None,
-                        pw=None, return_body=None, timeout=None,
-                        include_context=None):
+    def update_datatype(self, datatype, bucket, key,*args,**kwargs):
         """
         Updates a Riak Datatype. This operation is not idempotent and
         so will not be retried automatically.
@@ -436,58 +427,15 @@ class RiakPBC(Int32StringReceiver):
         :type include_context: bool
         :rtype: a subclass of :class:`~riak.datatypes.Datatype`, bool
         """
-        op = self.encode_operation(datatype)
+        code = pack('B', MSG_CODE_DATATYPE_UPDATE_REQ)
+        req = DtUpdateReq()
+        for attr in ['w','dw','pw','timeout,include_context']:
+            if kwargs.get(attr,''):
+                setattr(req,attr,kwargs[attr])
+        d = self.__send(code, req)
+        d.addCallback(lambda resp: resp) #need to parse and init the result here
+        return d
 
-        result = yield transport.update_type(datatype, bucket, key=key, w=w,
-                                       dw=dw, pw=pw,
-                                       return_body=return_body,
-                                       timeout=timeout,
-                                       include_context=include_context)
-        if return_body and result:
-            defer.returnValue( TYPES[result[0]](result[1], result[2]) )
-        else:
-            defer.returnValue( result )
-
-    def encode_operation(self,datatype):
-        op = None
-        if isinstance(datatype,Counter):
-            op = self.encode_counter_op(datatype)
-        elif isinstance(datatype,Set):
-            op = self.encode_set_op(datatype)
-        elif isinstance(datatype,Map):
-            op = self.encode_map_op(datatype)
-        elif isinstance(datatype,Flag):
-            op = self.encode_flag_op(datatype)
-        elif isinstance(datatype,Register):
-            raise NotImplemented()
-        else:
-            raise NotImplemented()
-        return op
-
-    def encode_counter_op(self,datatype):
-        incr = datatype.to_op()
-        if incr == 0:
-            raise Exception("Counter update cannot be 0")
-        o = CounterOp()
-        o.increment = incr
-        op = DtOp()
-        op.counter_op=o
-        return op
-
-    def encode_set_op(self,datatype):
-        changes = datatype.to_op()
-        add_op = changes['adds']
-        remove_op = changes['removes']
-        for o in add_op:
-            op.adds.append(o)
-        for o in remove_op:
-            op.removes.append(o)
-        op = DtOp()
-        op.set_op = op
-        return op
-
-    def encode_map_op(self,datatype):
-        changes = datatype.to_op()
 
     def put(self, bucket, key, content, vclock=None, **kwargs):
         code = pack('B', MSG_CODE_PUT_REQ)

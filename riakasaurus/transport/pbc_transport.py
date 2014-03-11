@@ -26,6 +26,10 @@ LOGLEVEL_DEBUG = 1
 LOGLEVEL_TRANSPORT = 2
 LOGLEVEL_TRANSPORT_VERBOSE = 4
 
+from riakasaurus.datatypes import TYPES
+from riakasaurus.datatypes import Set,Map,Counter #top class crdt
+from riakasaurus.datatypes import Flag,Register #secondary class crdt
+
 
 
 class StatefulTransport(object):
@@ -501,7 +505,7 @@ class PBCTransport(transport.FeatureDetection):
             defer.returnValue(result)
 
     @defer.inlineCallbacks
-    def update_datatype(self, datatype, bucket, key=None, w=None, dw=None,
+    def update_datatype(self, datatype, bucket, key, w=None, dw=None,
                         pw=None, return_body=None, timeout=None,
                         include_context=None):
         """
@@ -540,6 +544,8 @@ class PBCTransport(transport.FeatureDetection):
                 #defer.returnValue( TYPES[result[0]](result[1], result[2]) )
             #else:
                 #defer.returnValue( result )
+
+
 
     @defer.inlineCallbacks
     def set_bucket_props(self, bucket, props):
