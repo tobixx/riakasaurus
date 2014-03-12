@@ -18,6 +18,7 @@ from riakasaurus.metadata import *
 from riakasaurus.riak_index_entry import RiakIndexEntry
 from riakasaurus.mapreduce import RiakLink
 from riakasaurus import exceptions
+from riakasaurus.transport.pbc import dt_codec
 
 # protobuf
 from riakasaurus.transport import transport, pbc
@@ -26,6 +27,7 @@ LOGLEVEL_DEBUG = 1
 LOGLEVEL_TRANSPORT = 2
 LOGLEVEL_TRANSPORT_VERBOSE = 4
 
+from riakasaurus.datatypes import new
 from riakasaurus.datatypes import TYPES
 from riakasaurus.datatypes import Set,Map,Counter #top class crdt
 from riakasaurus.datatypes import Flag,Register #secondary class crdt
@@ -282,10 +284,11 @@ class PBCTransport(transport.FeatureDetection):
 
         # aquire transport, fire, release
         with (yield self._getFreeTransport()) as transport:
-            ret = yield transport.put(robj.get_bucket().get_name(),
+            ret = yield transport.put(robj.get_bucket().name,
                                       robj.get_key(),
                                       payload,
                                       vclock,
+                                      bucket_type = robj.get_bucket().bucket_type,
                                       **kwargs
                                       )
         defer.returnValue(self.parseRpbGetResp(ret))
@@ -296,17 +299,18 @@ class PBCTransport(transport.FeatureDetection):
         # ***FIXME*** whats vtag for? ignored for now
 
         with (yield self._getFreeTransport()) as transport:
-            ret = yield transport.get(robj.get_bucket().get_name(),
+            ret = yield transport.get(robj.get_bucket().name,
                                       robj.get_key(),
                                       r=r,
-                                      pr=pr)
+                                      pr=pr,
+                                      bucket_type = robj.get_bucket().bucket_type)
 
         defer.returnValue(self.parseRpbGetResp(ret))
 
     @defer.inlineCallbacks
     def head(self, robj, r=None, pr=None, vtag=None):
         with (yield self._getFreeTransport()) as transport:
-            ret = yield transport.get(robj.get_bucket().get_name(),
+            ret = yield transport.get(robj.get_bucket().name,
                                       robj.get_key(),
                                       r=r,
                                       pr=pr,
@@ -329,10 +333,11 @@ class PBCTransport(transport.FeatureDetection):
             kwargs['vclock'] = robj.vclock()
 
         with (yield self._getFreeTransport()) as transport:
-            ret = yield transport.delete(robj.get_bucket().get_name(),
-                                         robj.get_key(),
-                                         **kwargs
-                                         )
+            ret = yield transport.delete(robj.get_bucket().name,
+                                        robj.get_key(),
+                                        bucket_type = robj.get_bucket().bucket_type,
+                                        **kwargs
+                                        )
 
         defer.returnValue(ret)
 
@@ -402,9 +407,9 @@ class PBCTransport(transport.FeatureDetection):
         defer.returnValue(ret)
 
     @defer.inlineCallbacks
-    def get_buckets(self):
+    def get_buckets(self,bucket_type = 'default'):
         with (yield self._getFreeTransport()) as transport:
-            ret = yield transport.getBuckets()
+            ret = yield transport.getBuckets(bucket_type)
         defer.returnValue([x for x in ret.buckets])
 
     @defer.inlineCallbacks
@@ -461,7 +466,7 @@ class PBCTransport(transport.FeatureDetection):
 
 
     @defer.inlineCallbacks
-    def fetch_datatype(self, bucket, key, r=None, pr=None,
+    def fetch_datatype(self, bucket, key,r=None, pr=None,
                        basic_quorum=None, notfound_ok=None, timeout=None,
                        include_context=None):
         """
@@ -495,30 +500,32 @@ class PBCTransport(transport.FeatureDetection):
         :type include_context: bool
         :rtype: a subclass of :class:`~riak.datatypes.Datatype`
         """
-
+        datatype = yield bucket.get_property('datatype')
+        if not datatype:
+            raise Exception("Have to be a specific datatype to use datatype")
         with (yield self._getFreeTransport()) as transport:
-            result = yield transport.fetch_datatype(bucket, key, r=r, pr=pr,
-                                              basic_quorum=basic_quorum,
-                                              notfound_ok=notfound_ok,
-                                              timeout=timeout,
-                                              include_context=include_context)
+            if not (yield bucket.get(key)).exists():
+                result = new(datatype,bucket,key)
+            else:
+                result = yield transport.fetch_datatype(bucket.name,key,
+                                                  bucket.bucket_type,r=r,pr=pr,
+                                                  basic_quorum=basic_quorum,
+                                                  notfound_ok=notfound_ok,
+                                                  timeout=timeout,
+                                                  include_context=include_context)
+                #result = dt_codec.decode(result.type,bucket,key)
             defer.returnValue(result)
 
     @defer.inlineCallbacks
-    def update_datatype(self, datatype, bucket, key, w=None, dw=None,
+    def update_datatype(self, datatype, w=None, dw=None,
                         pw=None, return_body=None, timeout=None,
-                        include_context=None):
+                        include_context=None,bucket_type = None):
         """
         Updates a Riak Datatype. This operation is not idempotent and
         so will not be retried automatically.
 
         :param datatype: the datatype to update
         :type datatype: a subclass of :class:`~riak.datatypes.Datatype`
-        :param bucket: the bucket of the datatype, which must belong to a
-          :class:`~riak.BucketType`
-        :type bucket: RiakBucket
-        :param key: the key of the datatype
-        :type key: string, None
         :param w: the write quorum
         :type w: integer, string, None
         :param dw: the durable write quorum
@@ -534,7 +541,7 @@ class PBCTransport(transport.FeatureDetection):
         :rtype: a subclass of :class:`~riak.datatypes.Datatype`, bool
         """
         with (yield self._getFreeTransport()) as transport:
-            result = yield transport.update_type(datatype, bucket, key=key, w=w,
+            result = yield transport.update_datatype(datatype,w=w,
                                            dw=dw, pw=pw,
                                            return_body=return_body,
                                            timeout=timeout,
@@ -553,7 +560,7 @@ class PBCTransport(transport.FeatureDetection):
         Set bucket properties
         """
         with (yield self._getFreeTransport()) as transport:
-            ret = yield transport.setBucketProperties(bucket.get_name(), **props)
+            ret = yield transport.setBucketProperties(bucket.name,bucket.bucket_type, **props)
         defer.returnValue(ret == True)
 
     @defer.inlineCallbacks
@@ -562,7 +569,7 @@ class PBCTransport(transport.FeatureDetection):
         get bucket properties
         """
         with (yield self._getFreeTransport()) as transport:
-            ret = yield transport.getBucketProperties(bucket.get_name())
+            ret = yield transport.getBucketProperties(bucket.name,bucket.bucket_type)
         res = {}
         attrs = ['n_val', 'allow_mult','last_write_wins','precommit','has_precommit','postcommit','has_postcommit','chash_keyfun','linkfun','old_vclock','young_vclock','big_vclock','small_vclock','pr','r','w','pw','dw','rw','basic_quorum','notfound_ok','backend','search','repl','search_index','datatype']
         for a in attrs:
@@ -573,11 +580,11 @@ class PBCTransport(transport.FeatureDetection):
     @defer.inlineCallbacks
     def get_keys(self, bucket):
         with (yield self._getFreeTransport()) as transport:
-            ret = yield transport.getKeys(bucket.get_name())
+            ret = yield transport.getKeys(bucket.name,bucket.bucket_type)
         defer.returnValue(ret)
 
     @defer.inlineCallbacks
-    def get_index(self, bucket, index, startkey, endkey=None,return_terms=False, max_results=None, continuation=None):
+    def get_index(self, bucket, index, startkey, endkey=None,return_terms=False, max_results=None, continuation=None,bucket_type = 'default'):
         '''
         message RpbIndexResp {
             repeated bytes keys = 1;

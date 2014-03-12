@@ -458,7 +458,6 @@ class RiakObject(object):
         pr = self._bucket.get_pr(pr)
         t = self._client.get_transport()
         Result = yield t.get(self, r=r, pr=pr, vtag=vtag)
-
         self.clear()
         if Result is not None:
             self.populate(Result)

@@ -11,6 +11,7 @@ from pprint import pformat
 # generated code from *.proto message definitions
 from riakasaurus.transport.pbc import riak_kv_pb2, riak_pb2,riak_search_pb2,riak_yokozuna_pb2,riak_dt_pb2
 from riakasaurus import exceptions
+import dt_codec
 
 ## Protocol codes
 MSG_CODE_ERROR_RESP = 0
@@ -64,6 +65,7 @@ MSG_CODE_DATATYPE_UPDATE_RESP = 83
 
 RpbGetClientIdResp = riak_kv_pb2.RpbGetClientIdResp
 RpbSetClientIdReq = riak_kv_pb2.RpbSetClientIdReq
+RpbListBucketsReq = riak_kv_pb2.RpbListBucketsReq
 RpbGetReq = riak_kv_pb2.RpbGetReq
 RpbGetResp = riak_kv_pb2.RpbGetResp
 RpbPutReq = riak_kv_pb2.RpbPutReq
@@ -115,6 +117,7 @@ DtFetchReq = riak_dt_pb2.DtFetchReq
 DtFetchResp = riak_dt_pb2.DtFetchResp
 DtUpdateReq = riak_dt_pb2.DtUpdateReq
 DtUpdateResp = riak_dt_pb2.DtUpdateResp
+
 
 
 def toHex(s):
@@ -236,7 +239,7 @@ class RiakPBC(Int32StringReceiver):
         request = RpbGetReq()
         request.bucket = bucket
         request.key = key
-
+        request.type = kwargs.pop('bucket_type','default')
         if 'r' in kwargs:
             request.r = self._resolveNums(kwargs['r'])
         if 'pr' in kwargs:
@@ -254,9 +257,9 @@ class RiakPBC(Int32StringReceiver):
 
         return self.__send(code, request)
 
-    def get_index(self, bucket, index, startkey, endkey=None,return_terms=False, max_results=None, continuation=None):
+    def get_index(self, bucket, index, startkey, endkey=None,return_terms=False, max_results=None, continuation=None,bucket_type = 'default'):
         code = pack('B', MSG_CODE_INDEX_REQ)
-        req = RpbIndexReq(bucket=bucket, index=index)
+        req = RpbIndexReq(bucket=bucket, index=index,type=bucket_type)
         self.__indexResultList = []
         if endkey:
             req.qtype = RpbIndexReq.range
@@ -358,8 +361,7 @@ class RiakPBC(Int32StringReceiver):
         return d
 
 
-    @defer.inlineCallbacks
-    def fetch_datatype(self, bucket, key, *args,**kwargs):
+    def fetch_datatype(self, bucket, key,bucket_type,*args,**kwargs):
         """
         fetch_datatype(bucket, key, r=None, pr=None, basic_quorum=None,
                        notfound_ok=None, timeout=None, include_context=None)
@@ -369,11 +371,6 @@ class RiakPBC(Int32StringReceiver):
         .. note:: This request is automatically retried :attr:`retries`
            times if it fails due to network error.
 
-        :param bucket: the bucket of the datatype, which must belong to a
-          :class:`~riak.BucketType`
-        :type bucket: RiakBucket
-        :param key: the key of the datatype
-        :type key: string
         :param r: the read quorum
         :type r: integer, string, None
         :param pr: the primary read quorum
@@ -393,6 +390,9 @@ class RiakPBC(Int32StringReceiver):
         """
         code = pack('B', MSG_CODE_DATATYPE_FETCH_REQ)
         req = DtFetchReq()
+        req.bucket = bucket
+        req.key = key
+        req.type = bucket_type
         for attr in ['r','pr','basic_quorum','notfound_ok','timeout,include_context']:
             if kwargs.get(attr,''):
                 setattr(req,attr,kwargs[attr])
@@ -401,18 +401,13 @@ class RiakPBC(Int32StringReceiver):
         return d
 
     @defer.inlineCallbacks
-    def update_datatype(self, datatype, bucket, key,*args,**kwargs):
+    def update_datatype(self, datatype, *args,**kwargs):
         """
         Updates a Riak Datatype. This operation is not idempotent and
         so will not be retried automatically.
 
         :param datatype: the datatype to update
         :type datatype: a subclass of :class:`~riak.datatypes.Datatype`
-        :param bucket: the bucket of the datatype, which must belong to a
-          :class:`~riak.BucketType`
-        :type bucket: RiakBucket
-        :param key: the key of the datatype
-        :type key: string, None
         :param w: the write quorum
         :type w: integer, string, None
         :param dw: the durable write quorum
@@ -429,9 +424,15 @@ class RiakPBC(Int32StringReceiver):
         """
         code = pack('B', MSG_CODE_DATATYPE_UPDATE_REQ)
         req = DtUpdateReq()
-        for attr in ['w','dw','pw','timeout,include_context']:
+        req.bucket=datatype.bucket.name
+        req.key=datatype.key
+        req.type = datatype.bucket.bucket_type
+        if datatype.context:
+            req.context = datatype.context
+        for attr in ['w','dw','pw','timeout','return_body','include_context']:
             if kwargs.get(attr,''):
                 setattr(req,attr,kwargs[attr])
+        op = dt_codec.encode_operation(datatype,req)
         d = self.__send(code, req)
         d.addCallback(lambda resp: resp) #need to parse and init the result here
         return d
@@ -442,6 +443,7 @@ class RiakPBC(Int32StringReceiver):
         request = RpbPutReq()
         request.bucket = bucket
         request.key = key
+        request.type = kwargs.pop('bucket_type','default')
 
         if isinstance(content, str):
             request.content.value = content
@@ -505,6 +507,7 @@ class RiakPBC(Int32StringReceiver):
         request = RpbDelReq()
         request.bucket = bucket
         request.key = key
+        request.type = kwargs.pop('bucket_type','default')
 
         if 'vclock' in kwargs and kwargs['vclock']:
             request.vclock = kwargs['vclock']
@@ -553,7 +556,7 @@ class RiakPBC(Int32StringReceiver):
     # ------------------------------------------------------------------
     # Bucket Operations .. getKeys, getBuckets, get/set Bucket properties
     # ------------------------------------------------------------------
-    def getKeys(self, bucket):
+    def getKeys(self, bucket,bucket_type = 'default'):
         """
         operates different than the other messages, as it returns more than
         one respone .. see stringReceived() for handling
@@ -561,28 +564,34 @@ class RiakPBC(Int32StringReceiver):
         code = pack('B', MSG_CODE_LIST_KEYS_REQ)
         request = RpbListKeysReq()
         request.bucket = bucket
+        request.type = bucket_type
         self.__keyList = []
         return self.__send(code, request)
 
-    def getBuckets(self):
+    def getBuckets(self,bucket_type = 'default'):
         """
         operates different than the other messages, as it returns more than
         one respone .. see stringReceived() for handling
         """
         code = pack('B', MSG_CODE_LIST_BUCKETS_REQ)
-        return self.__send(code)
+        req = RpbListBucketsReq()
+        req.type = bucket_type
+        return self.__send(code,req)
 
-    def getBucketProperties(self, bucket):
+    def getBucketProperties(self, bucket,bucket_type = 'default'):
         code = pack('B', MSG_CODE_GET_BUCKET_REQ)
         request = RpbGetBucketReq()
         request.bucket = bucket
+        #need to add version test here to do backport support
+        request.type = bucket_type
         return self.__send(code,request)
 
-    def setBucketProperties(self, bucket, **kwargs):
+    def setBucketProperties(self, bucket, bucket_type = 'default',**kwargs):
         code = pack('B', MSG_CODE_SET_BUCKET_REQ)
         request = RpbSetBucketReq()
         request.bucket = bucket
-
+        #need to add version test here to do backport support
+        request.type = bucket_type
         for k, v in kwargs.items():
             if k in ['n_val', 'allow_mult','last_write_wins','precommit','has_precommit','postcommit','has_postcommit','chash_keyfun','linkfun','old_vclock','young_vclock','big_vclock','small_vclock','pr','r','w','pw','dw','rw','basic_quorum','notfound_ok','backend','search','repl','search_index','datatype']:
                 setattr(request.props, k, v)

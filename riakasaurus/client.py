@@ -283,13 +283,13 @@ class RiakClient(object):
         self._decoders[content_type] = decoder
         return self
 
-    def bucket(self, name):
+    def bucket(self, name,bucket_type = 'default'):
         """
         Get the bucket by the specified name. Since buckets always exist,
         this will always return a RiakBucket.
         :returns: RiakBucket instance.
         """
-        return bucket.RiakBucket(self, name)
+        return bucket.RiakBucket(self, name,bucket_type)
 
     def is_alive(self):
         """
@@ -325,14 +325,14 @@ class RiakClient(object):
         mr = mapreduce.RiakMapReduce(self)
         return mr.link(*args)
 
-    def list_buckets(self):
+    def list_buckets(self,bucket_type = 'default'):
         """
         Retrieve a list of all buckets.
 
         :returns: list -- via deferred
         """
 
-        return self.transport.get_buckets()
+        return self.transport.get_buckets(bucket_type)
 
     def index(self, *args):
         """
@@ -430,130 +430,8 @@ class RiakClient(object):
                                             w=w, dw=dw, pw=pw,
                                             returnvalue=returnvalue)
 
-    def fetch_datatype(self, bucket, key, r=None, pr=None,
-                       basic_quorum=None, notfound_ok=None, timeout=None,
-                       include_context=None):
-        """
-        fetch_datatype(bucket, key, r=None, pr=None, basic_quorum=None,
-                       notfound_ok=None, timeout=None, include_context=None)
 
-        Fetches the value of a Riak Datatype.
 
-        .. note:: This request is automatically retried :attr:`retries`
-           times if it fails due to network error.
-
-        :param bucket: the bucket of the datatype, which must belong to a
-          :class:`~riak.BucketType`
-        :type bucket: RiakBucket
-        :param key: the key of the datatype
-        :type key: string
-        :param r: the read quorum
-        :type r: integer, string, None
-        :param pr: the primary read quorum
-        :type pr: integer, string, None
-        :param basic_quorum: whether to use the "basic quorum" policy
-           for not-founds
-        :type basic_quorum: bool
-        :param notfound_ok: whether to treat not-found responses as successful
-        :type notfound_ok: bool
-        :param timeout: a timeout value in milliseconds
-        :type timeout: int
-        :param include_context: whether to return the opaque context
-          as well as the value, which is useful for removal operations
-          on sets and maps
-        :type include_context: bool
-        :rtype: a subclass of :class:`~riak.datatypes.Datatype`
-        """
-
-        return self.transport.fetch_datatype(bucket, key, r=r, pr=pr,
-                                          basic_quorum=basic_quorum,
-                                          notfound_ok=notfound_ok,
-                                          timeout=timeout,
-                                          include_context=include_context)
-
-    @defer.inlineCallbacks
-    def update_datatype(self, datatype, bucket, key=None, w=None, dw=None,
-                        pw=None, return_body=None, timeout=None,
-                        include_context=None):
-        """
-        Updates a Riak Datatype. This operation is not idempotent and
-        so will not be retried automatically.
-
-        :param datatype: the datatype to update
-        :type datatype: a subclass of :class:`~riak.datatypes.Datatype`
-        :param bucket: the bucket of the datatype, which must belong to a
-          :class:`~riak.BucketType`
-        :type bucket: RiakBucket
-        :param key: the key of the datatype
-        :type key: string, None
-        :param w: the write quorum
-        :type w: integer, string, None
-        :param dw: the durable write quorum
-        :type dw: integer, string, None
-        :param pw: the primary write quorum
-        :type pw: integer, string, None
-        :param timeout: a timeout value in milliseconds
-        :type timeout: int
-        :param include_context: whether to return the opaque context
-          as well as the value, which is useful for removal operations
-          on sets and maps
-        :type include_context: bool
-        :rtype: a subclass of :class:`~riak.datatypes.Datatype`, bool
-        """
-
-        return self.transport.update_type(datatype, bucket,
-                                           key=key, w=w,
-                                           dw=dw, pw=pw,
-                                           return_body=return_body,
-                                           timeout=timeout,
-                                           include_context=include_context)
-                #defer.returnValue( TYPES[result[0]](result[1], result[2]) )
-
-    def modify_datatype(self, bucket, key, r=None, pr=None, w=None, dw=None,
-                        pw=None, basic_quorum=None, notfound_ok=None,
-                        timeout=None, include_context=None):
-        """
-        Encapsulates :meth:`fetch_datatype` and
-        :meth:`update_datatype` into a single call, yielding the
-        fetched datatype to a `with` statement.
-
-        :param bucket: the bucket of the datatype, which must belong to a
-          :class:`~riak.BucketType`
-        :type bucket: RiakBucket
-        :param key: the key of the datatype
-        :type key: string, None
-        :param r: the read quorum
-        :type r: integer, string, None
-        :param pr: the primary read quorum
-        :type pr: integer, string, None
-        :param w: the write quorum
-        :type w: integer, string, None
-        :param dw: the durable write quorum
-        :type dw: integer, string, None
-        :param pw: the primary write quorum
-        :type pw: integer, string, None
-        :param basic_quorum: whether to use the "basic quorum" policy
-           for not-founds
-        :type basic_quorum: bool
-        :param notfound_ok: whether to treat not-found responses as successful
-        :type notfound_ok: bool
-        :param timeout: a timeout value in milliseconds
-        :type timeout: int
-        :param include_context: whether to return the opaque context
-          as well as the value, which is useful for removal operations
-          on sets and maps
-        :type include_context: bool
-        """
-        fparams = dict(r=r, pr=pr, basic_quorum=basic_quorum,
-                       notfound_ok=notfound_ok, timeout=timeout,
-                       include_context=include_context)
-        uparams = dict(w=w, dw=dw, pw=pw, timeout=timeout,
-                       include_context=include_context)
-
-        d = self.fetch_datatype(bucket, key, **fparams)
-        d.addCallback(self.update_datatype, bucket, key, **uparams)
-        d.addErrback(log.err)
-        return d
 
 if __name__ == "__main__":
     pass

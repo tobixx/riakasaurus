@@ -1,3 +1,11 @@
+DATATYPE_BUCKET_TYPE = {
+    'Counter' : 'counters',
+    'Set' : 'sets',
+    'Map' : 'maps',
+}
+
+from twisted.internet import defer
+
 class Datatype(object):
     """
     Base class for all convergent datatype wrappers. You will not use
@@ -6,13 +14,16 @@ class Datatype(object):
     """
 
 
-    def __init__(self, value=None, context=None):
+    def __init__(self, value=None, context=None,bucket = None, key = None):
         if value is not None:
             self._raise_if_badtype(value)
             self._value = self._coerce_value(value)
         else:
+            #fetch_datatype here,init if exists,otherwise create new
             self._value = value
         self._context = context
+        self._bucket = bucket
+        self._key = key
         self._type_error_msg = "Invalid value type"
 
     @property
@@ -27,6 +38,14 @@ class Datatype(object):
            independent of any internal data representation.
         """
         return self._value
+
+    @property
+    def bucket(self):
+        return self._bucket
+
+    @property
+    def client(self):
+        return self._bucket.client
 
     @property
     def context(self):
@@ -80,3 +99,7 @@ class Datatype(object):
 
     def __str__(self):
         return str(self.value)
+
+    @defer.inlineCallbacks
+    def update(self):
+        raise NotImplementedError

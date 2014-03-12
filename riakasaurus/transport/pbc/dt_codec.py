@@ -15,10 +15,10 @@ MapField = riak_dt_pb2.MapField
 MapEntry = riak_dt_pb2.MapEntry
 MapUpdate = riak_dt_pb2.MapUpdate
 
-def encode_operation(datatype):
+def encode_operation(datatype,update_req):
     try:
         dt_type = DATATYPE_CLASS_DICT[datatype.__class__.__name__]
-        op = DATATYPE_ENCODE_DICT[dt_type](datatype)
+        op = DATATYPE_ENCODE_DICT[dt_type](datatype,update_req=update_req)
         return op
     except Exception,e:
         print e
@@ -37,27 +37,27 @@ def encode_map_update_operation(op,map_update):
         map_update.register_op = op
     else:
         update_op = getattr(map_update,DATATYPE_MAPFIELD_DICT[dt_type])
-        DATATYPE_ENCODE_DICT[dt_type](op,update_op)
+        DATATYPE_ENCODE_DICT[dt_type](op,map_update_op = update_op)
     return map_update
 
-def encode_counter_op(datatype,map_update_op = None):
+def encode_counter_op(datatype,map_update_op = None,update_req = None):
     if isinstance(datatype,Datatype):
         incr = datatype.to_op()
     else:
         incr = datatype
-    if incr == 0:
+    if incr == 0 or incr == None:
         raise Exception("Counter update cannot be 0")
     if not map_update_op:
-        op = DtOp()
+        op = update_req.op
         o = op.counter_op
-        o.increment = incr
+        o.increment = long(incr)
         return op
     else:
         o = map_update_op
         o.increment = incr
         return map_update_op
 
-def encode_set_op(datatype,map_update_op = None):
+def encode_set_op(datatype,map_update_op = None,update_req=None):
     if isinstance(datatype,Datatype):
         changes = datatype.to_op()
     else:
@@ -65,7 +65,7 @@ def encode_set_op(datatype,map_update_op = None):
     add_op = changes.get('adds',[])
     remove_op = changes.get('removes',[])
     if not map_update_op:
-        op = DtOp()
+        op = update_req.op
         o = op.set_op
         for i in add_op:
             o.adds.append(i)
@@ -81,13 +81,13 @@ def encode_set_op(datatype,map_update_op = None):
         return map_update_op
 
 
-def encode_map_op(datatype,map_update_op = None):
+def encode_map_op(datatype,map_update_op = None,update_req=None):
     if isinstance(datatype,Datatype):
         changes = datatype.to_op()
     else:
         changes = datatype
     if not map_update_op:
-        op = DtOp()
+        op = update_req.op
         map_op = op.map_op
         for o in changes:
             if len(o) == 2:
