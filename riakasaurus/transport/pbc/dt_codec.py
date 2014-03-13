@@ -24,6 +24,70 @@ def encode_operation(datatype,update_req):
         print e
         print traceback.format_exc()
 
+
+def decode_counter_value(dt_value):
+    return long(dt_value)
+def decode_set_value(dt_value):
+    return frozenset([k for k in dt_value])
+
+def decode_flag_value(dt_value):
+    return bool(dt_value)
+def decode_register_value(dt_value):
+    return str(dt_value)
+
+def decode_map_value(dt_value):
+    return decode_map_object(dt_value)
+
+DECODE_FUNC = {
+        1 : decode_counter_value,
+        2 : decode_set_value,
+        3 : decode_register_value,
+        4 : decode_flag_value,
+        5 : decode_map_value
+}
+
+MAP_ENTRY_CODEC = {
+        1 : "counter_value" ,
+        2 : "set_value"     ,
+        3 : "register_value"  ,
+        4 : "flag_value"    ,
+        5 : "map_value"
+}
+
+MAP_ENTRY_TYPE = {
+        1 : "counter",
+        2 : "set",
+        3 : "register",
+        4 : "flag",
+        5 : "map"
+}
+
+def decode_map_entry(map_entry):
+    datatype = map_entry.field.type
+    value = getattr(map_entry,MAP_ENTRY_CODEC[datatype])
+    name = map_entry.field.name
+    decode_value = DECODE_FUNC[datatype](value)
+    return ((name,MAP_ENTRY_TYPE[datatype]),decode_value)
+
+def decode_map_object(value):
+    ret = []
+    for v in value: #traverse each map_entry instance
+        entry = decode_map_entry(v)
+        ret.append(entry)
+    return dict(ret)
+
+def decode_dtfetch_response(res,bucket=None,key=None):
+    if res.type == 1:
+        ret = Counter(res.value.counter_value,context = res.context,bucket = bucket,key = key)
+    elif res.type == 2:
+        value = frozenset([k for k in res.value.set_value])
+        ret = Set(value,context = res.context,bucket = bucket,key = key)
+    elif res.type == 3:
+        value = decode_map_object( res.value.map_value )
+        ret = Map(value,context = res.context,bucket = bucket,key = key)
+    return ret
+
+
 def encode_map_update_operation(op,map_update):
     (action,(key,dt_type),op) = op
     if action != 'update':

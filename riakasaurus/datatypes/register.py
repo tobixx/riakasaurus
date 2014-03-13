@@ -1,5 +1,6 @@
 from collections import Sized
 from riakasaurus.datatypes.datatype import Datatype
+from twisted.internet import defer
 
 
 class Register(Sized, Datatype):
@@ -10,10 +11,10 @@ class Register(Sized, Datatype):
     """
 
     def __init__(self,*args,**kwargs):
-        super(Register,self).__init__(*args,**kwargs)
-        self._value = "" if self._value==None else self._value
         self._new_value = None
         self._type_error_msg = "Registers can only be strings"
+        super(Register,self).__init__(*args,**kwargs)
+        self._value = "" if self._value==None else self._value
 
     @Datatype.dirty_value.getter
     def dirty_value(self):
@@ -60,3 +61,8 @@ class Register(Sized, Datatype):
 
     def _check_type(self,new_value):
         return isinstance(new_value, basestring)
+
+
+    def _reinit_object(self):
+        self._value = self._coerce_value(self.dirty_value)
+        self._new_value = None

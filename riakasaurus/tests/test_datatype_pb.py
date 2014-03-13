@@ -69,6 +69,62 @@ class Tests(unittest.TestCase):
     @defer.inlineCallbacks
     def test_counter(self):
         counter = yield self.counter_bucket.fetch_datatype('test_counter1')
+        print 'before counter %s' %counter
         if counter.value == 0:
-            yield c.increment()
-            yield c.update()
+            counter.increment(10)
+            res = yield counter.update()
+            print 'now counter %s' %counter
+            counter.increment(10)
+            res = yield counter.update()
+            print 'now counter %s' %counter
+            counter = yield self.counter_bucket.fetch_datatype('test_counter1')
+            print counter.__class__
+
+    @defer.inlineCallbacks
+    def test_set(self):
+        set = yield self.set_bucket.fetch_datatype('test_set1')
+        print 'before set %s' %set
+        if not set.value:
+            set.add('Jason Terry')
+            set.add('Dirk Nowizki')
+            set.add('Jason Kidd')
+            set.add('Tyson Chandler')
+            set.add('J.J Bareau')
+            res = yield set.update()
+            print 'now set %s' %set
+            set.discard('Tyson Chandler')
+            set.discard('J.J Bareau')
+            res = yield set.update()
+            print 'now set %s' %set
+            set.discard('Jason Terry')
+            set.discard('Jason Kidd')
+            res = yield set.update()
+            print 'now set %s' %set
+            set = yield self.set_bucket.fetch_datatype('test_set1')
+            print set
+
+    @defer.inlineCallbacks
+    def test_map(self):
+        map = yield self.map_bucket.fetch_datatype('test_map1')
+        print 'before map %s' %map
+        if not map.value:
+            map.counters['test_counter'].increment(10)
+            map.registers['test_register'].set('Mavericks')
+            map.counters['test_counter'].decrement(5)
+            map.sets['test_set'].add('Jason Terry')
+            map.sets['test_set'].add('Dirk Nowizki')
+            map.sets['test_set'].add('Jason Kidd')
+            map.sets['test_set'].add('Tyson Chandler')
+            map.sets['test_set'].add('J.J Bareau')
+            map.maps['offseason_trade'].counters['year'].increment(2010)
+            map.maps['offseason_trade'].sets['trade_out'].add('J.J Bareau')
+            map.maps['offseason_trade'].sets['trade_out'].add('Jason Terry')
+            map.maps['offseason_trade'].sets['trade_out'].add('Tyson Chandler')
+            map.maps['offseason_trade'].maps['test_inner_map'].registers['inner_text'].set('test_text')
+            yield map.update()
+            print "now map %s" %map.value
+            del map.maps['offseason_trade']
+            yield map.update()
+            print "now map %s" %map.value
+            map = yield self.map_bucket.fetch_datatype('test_map1')
+            print map.value

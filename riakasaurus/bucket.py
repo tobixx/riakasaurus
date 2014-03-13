@@ -648,7 +648,7 @@ class RiakBucket(object):
                 yield obj.delete()
 
     @defer.inlineCallbacks
-    def fetch_datatype(self, key,r=None, pr=None,
+    def fetch_datatype(self,key,r=None, pr=None,
                        basic_quorum=None, notfound_ok=None, timeout=None,
                        include_context=None):
         """

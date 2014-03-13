@@ -400,7 +400,6 @@ class RiakPBC(Int32StringReceiver):
         d.addCallback(lambda resp: resp) #need to parse and init the result here
         return d
 
-    @defer.inlineCallbacks
     def update_datatype(self, datatype, *args,**kwargs):
         """
         Updates a Riak Datatype. This operation is not idempotent and

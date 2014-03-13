@@ -504,16 +504,16 @@ class PBCTransport(transport.FeatureDetection):
         if not datatype:
             raise Exception("Have to be a specific datatype to use datatype")
         with (yield self._getFreeTransport()) as transport:
-            if not (yield bucket.get(key)).exists():
-                result = new(datatype,bucket,key)
+            result = yield transport.fetch_datatype(bucket.name,key,
+                                              bucket.bucket_type,r=r,pr=pr,
+                                              basic_quorum=basic_quorum,
+                                              notfound_ok=notfound_ok,
+                                              timeout=timeout,
+                                              include_context=include_context)
+            if result.value:
+                result = dt_codec.decode_dtfetch_response(result,bucket,key)
             else:
-                result = yield transport.fetch_datatype(bucket.name,key,
-                                                  bucket.bucket_type,r=r,pr=pr,
-                                                  basic_quorum=basic_quorum,
-                                                  notfound_ok=notfound_ok,
-                                                  timeout=timeout,
-                                                  include_context=include_context)
-                #result = dt_codec.decode(result.type,bucket,key)
+                result = new(datatype,bucket,key)
             defer.returnValue(result)
 
     @defer.inlineCallbacks

@@ -14,7 +14,7 @@ class Datatype(object):
     """
 
 
-    def __init__(self, value=None, context=None,bucket = None, key = None):
+    def __init__(self, value=None, context='',bucket = None, key = None):
         if value is not None:
             self._raise_if_badtype(value)
             self._value = self._coerce_value(value)
@@ -25,6 +25,8 @@ class Datatype(object):
         self._bucket = bucket
         self._key = key
         self._type_error_msg = "Invalid value type"
+        self._is_top_class = True if self.__class__.__name__ in DATATYPE_BUCKET_TYPE.keys() else False
+
 
     @property
     def value(self):
@@ -42,6 +44,10 @@ class Datatype(object):
     @property
     def bucket(self):
         return self._bucket
+
+    @property
+    def key(self):
+        return self._key
 
     @property
     def client(self):
@@ -100,6 +106,31 @@ class Datatype(object):
     def __str__(self):
         return str(self.value)
 
-    @defer.inlineCallbacks
-    def update(self):
+    def _reinit_object(self):
         raise NotImplementedError
+
+    @defer.inlineCallbacks
+    def update(self,lazy=True,*args,**kwargs):
+        '''
+        :param w: the write quorum
+        :type w: integer, string, None
+        :param dw: the durable write quorum
+        :type dw: integer, string, None
+        :param pw: the primary write quorum
+        :type pw: integer, string, None
+        :param timeout: a timeout value in milliseconds
+        :type timeout: int
+        :param include_context: whether to return the opaque context
+          as well as the value, which is useful for removal operations
+          on sets and maps
+        :type include_context: bool
+        '''
+        #update here first
+        if self.to_op():
+            if self._is_top_class:
+                yield self.bucket.update_datatype(self,*args,**kwargs)
+            #reinit the value
+            #if lazy is false, will update the object here
+            self._reinit_object()
+        else:
+            pass 

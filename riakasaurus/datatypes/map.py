@@ -4,6 +4,7 @@ from riakasaurus.datatypes.counter import Counter
 from riakasaurus.datatypes.flag import Flag
 from riakasaurus.datatypes.register import Register
 from riakasaurus.datatypes.set import Set
+from twisted.internet import defer
 
 class lazy_property(object):
     '''
@@ -97,8 +98,6 @@ class Map(Mapping, Datatype):
 
     def __init__(self,*args,**kwargs):
         self._type_error_msg = "Map must be a dict with (name, type) keys"
-        super(Map,self).__init__(*args,**kwargs)
-        self._value = {} if self._value==None else self._value
         self._removes = set()
         self._updates = {}
         self._adds = set()
@@ -107,9 +106,10 @@ class Map(Mapping, Datatype):
         self._maps = None
         self._sets = None
         self._registers = None
+        super(Map,self).__init__(*args,**kwargs)
+        self._value = {} if self._value==None else self._value
 
     @lazy_property
-    #@property
     def counters(self):
         """
         Filters keys in the map to only those of counter types. Example::
@@ -123,7 +123,6 @@ class Map(Mapping, Datatype):
         return self._counters
 
     @lazy_property
-    #@property
     def flags(self):
         """
         Filters keys in the map to only those of flag types. Example::
@@ -138,7 +137,6 @@ class Map(Mapping, Datatype):
         return self._flags
 
     @lazy_property
-    #@property
     def maps(self):
         """
         Filters keys in the map to only those of map types. Example::
@@ -152,7 +150,6 @@ class Map(Mapping, Datatype):
         return self._maps
 
     @lazy_property
-    #@property
     def registers(self):
         """
         Filters keys in the map to only those of register types. Example::
@@ -166,7 +163,6 @@ class Map(Mapping, Datatype):
         return self._registers
 
     @lazy_property
-    #@property
     def sets(self):
         """
         Filters keys in the map to only those of set types. Example::
@@ -342,6 +338,12 @@ class Map(Mapping, Datatype):
             op = d[key].to_op()
             if op is not None:
                 yield ('update', key, op)
+
+    def _reinit_object(self):
+        self._value = self._coerce_value(self.dirty_value)
+        self._removes = set()
+        self._updates = {}
+        self._adds = set()
 
 #: A dict from type names as strings to the class that implements
 #: them. This is used inside :class:`Map` to initialize new values.

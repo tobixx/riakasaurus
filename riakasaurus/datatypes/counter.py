@@ -1,4 +1,5 @@
 from riakasaurus.datatypes.datatype import Datatype
+from twisted.internet import defer
 
 
 class Counter(Datatype):
@@ -9,10 +10,10 @@ class Counter(Datatype):
     """
 
     def __init__(self,*args,**kwargs):
-        super(Counter,self).__init__(*args,**kwargs)
-        self._value = 0 if self._value==None else self._value
         self._increment = 0
         self._type_error_msg = "Counters can only be integers"
+        super(Counter,self).__init__(*args,**kwargs)
+        self._value = 0 if self._value==None else long(self._value)
 
     @Datatype.dirty_value.getter
     def dirty_value(self):
@@ -49,4 +50,8 @@ class Counter(Datatype):
         self._increment -= amount
 
     def _check_type(self,new_value):
-        return isinstance(new_value, int)
+        return isinstance(new_value, int) or isinstance(new_value,long)
+
+    def _reinit_object(self):
+        self._value = self._coerce_value(self.dirty_value)
+        self._increment = 0

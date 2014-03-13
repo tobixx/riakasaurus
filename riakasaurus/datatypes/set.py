@@ -1,15 +1,16 @@
 import collections
 from riakasaurus.datatypes.datatype import Datatype
+from twisted.internet import defer
 
 
 class Set(collections.Set, Datatype):
 
     def __init__(self,*args,**kwargs):
-        super(Set,self).__init__(*args,**kwargs)
-        self._value = frozenset() if self._value==None else self._value
         self._adds = set()
         self._removes = set()
         self._type_error_msg = "Sets can only be iterables of strings"
+        super(Set,self).__init__(*args,**kwargs)
+        self._value = frozenset() if self._value==None else self._value
 
     @Datatype.dirty_value.getter
     def dirty_value(self):
@@ -96,3 +97,8 @@ class Set(collections.Set, Datatype):
     def _check_element(self,element):
         if not isinstance(element, basestring):
             raise TypeError("Set elements can only be strings")
+
+    def _reinit_object(self):
+        self._value = self._coerce_value(self.dirty_value)
+        self._adds = set()
+        self._removes = set()

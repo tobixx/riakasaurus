@@ -1,4 +1,5 @@
 from riakasaurus.datatypes.datatype import Datatype
+from twisted.internet import defer
 
 
 class Flag(Datatype):
@@ -9,10 +10,10 @@ class Flag(Datatype):
     """
 
     def __init__(self,*args,**kwargs):
-        super(Flag,self).__init__(*args,**kwargs)
-        self._op = None
-        self._value = False if self._value==None else self._value
         self._type_error_msg = "Flags can only be booleans"
+        self._op = None
+        super(Flag,self).__init__(*args,**kwargs)
+        self._value = False if self._value==None else self._value
 
     @Datatype.dirty_value.getter
     def dirty_value(self):
@@ -48,3 +49,7 @@ class Flag(Datatype):
 
     def _check_type(self,new_value):
         return isinstance(new_value, bool)
+
+    def _reinit_object(self):
+        self._value = self._coerce_value(self.dirty_value)
+        self._op = None
