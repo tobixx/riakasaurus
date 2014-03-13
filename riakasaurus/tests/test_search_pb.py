@@ -104,9 +104,13 @@ class Tests(unittest.TestCase):
         current_index = yield self.bucket.get_search_index()
         if current_index != 'test_index':
             yield self.bucket.set_search_index('test_index')
+        self.map_bucket = self.client.bucket('test_map','maps')
+        yield self.client.create_search_index('test_map_index')
+        yield self.map_bucket.set_search_index('test_map_index')
 
     @defer.inlineCallbacks
     def tearDown(self):
+        yield self.map_bucket.purge_keys()
         yield self.bucket.purge_keys()
         yield self.client.transport.quit()
         #yield self.client.delete_search_index('test_index')
@@ -117,35 +121,52 @@ class Tests(unittest.TestCase):
         res = yield self.client.list_search_indexes()
         print res
 
-    @defer.inlineCallbacks
-    def test_delete_index(self):
-        current_index = yield self.bucket.get_search_index()
-        print 'Current index is %s' %current_index
-        yield self.bucket.set_search_index('_dont_index_')
-        current_index = yield self.bucket.get_search_index()
-        print 'Current index is %s' %current_index
-        properties = yield self.bucket.get_properties()
-        print 'properties is %s' %properties
-        yield self.client.delete_search_index('test_index')
-        print 'Deleted index test_index' 
-
-
 #    @defer.inlineCallbacks
-    #def test_riak_search(self):
-        #"""Test searching buckets"""
-        #log.msg("*** riak_search")
-        #count = 20
-        #for i in xrange(count):
-            #obj1 = self.bucket.new("foo%d" %i, {"count": "%d" %(count-i)})
-            #obj1.add_meta_data('x-riak-meta-yz-tags','x-riak-meta-class')
-            #obj1.add_meta_data('x-riak-meta-class','test')
-            #yield obj1.store()
-        #yield sleep(1)
-        #keys = yield self.bucket.search('class:test',rows=1)
-        #self.assertEqual(keys['num_found'],count)
-        #keys_sorted = yield self.bucket.search('class:test AND count:[10 TO 15]',rows=3,sort='count desc') #seems like fl have bug with pbc now
-        #self.assertEqual(keys_sorted['num_found'],6)
-        #self.assertEqual(int(keys_sorted['docs'][0]['count']),15)
+    #def test_delete_index(self):
+        #current_index = yield self.bucket.get_search_index()
+        #print 'Current index is %s' %current_index
+        #yield self.bucket.set_search_index('_dont_index_')
+        #current_index = yield self.bucket.get_search_index()
+        #print 'Current index is %s' %current_index
+        #properties = yield self.bucket.get_properties()
+        #print 'properties is %s' %properties
+        #yield self.client.delete_search_index('test_index')
+        #print 'Deleted index test_index' 
+
+
+    @defer.inlineCallbacks
+    def test_riak_search(self):
+        """Test searching buckets"""
+        log.msg("*** riak_search")
+        count = 20
+        for i in xrange(count):
+            obj1 = self.bucket.new("foo%d" %i, {"count": "%d" %(count-i)})
+            obj1.add_meta_data('x-riak-meta-yz-tags','x-riak-meta-class')
+            obj1.add_meta_data('x-riak-meta-class','test')
+            yield obj1.store()
+        yield sleep(1)
+        keys = yield self.bucket.search('class:test',rows=1)
+        self.assertEqual(keys['num_found'],count)
+        keys_sorted = yield self.bucket.search('class:test AND count:[10 TO 15]',rows=3,sort='count desc') #seems like fl have bug with pbc now
+        self.assertEqual(keys_sorted['num_found'],6)
+        self.assertEqual(int(keys_sorted['docs'][0]['count']),15)
+
+    @defer.inlineCallbacks
+    def test_riak_map_search(self):
+        """Test searching bucket maps"""
+        log.msg("*** riak_search")
+        count = 20
+        for i in xrange(count):
+            obj1 = yield self.map_bucket.fetch_datatype("foo%d" %i)
+            obj1.counters["count"].increment(count-i)
+            obj1.registers["class"].set('test')
+            yield obj1.update()
+        yield sleep(1)
+        keys = yield self.map_bucket.search('class_register:test',rows=1)
+        self.assertEqual(keys['num_found'],count)
+        keys_sorted = yield self.map_bucket.search('class_register:test AND count_counter:[10 TO 15]',rows=3,sort='count_counter desc') #seems like fl have bug with pbc now
+        self.assertEqual(keys_sorted['num_found'],6)
+        self.assertEqual(int(keys_sorted['docs'][0]['count_counter']),15)
 
 
     #@defer.inlineCallbacks
