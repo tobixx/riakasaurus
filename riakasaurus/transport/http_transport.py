@@ -5,6 +5,8 @@ LineReceiver.MAX_LENGTH = 1024 * 1024 * 64
 
 from twisted.internet import defer, reactor, protocol, error
 from twisted.web.http_headers import Headers
+from twisted.web import client
+client._HTTP11ClientFactory.noisy = False
 from twisted.web.client import Agent
 from twisted.web.iweb import IBodyProducer
 from twisted.python import log
@@ -25,6 +27,13 @@ import urllib
 import re
 import csv
 import time
+
+from riakasaurus.datatypes import TYPES
+from riakasaurus.datatypes import Set,Map,Counter #top class crdt
+from riakasaurus.datatypes import Flag,Register #secondary class crdt
+from riakasaurus.datatypes import Datatype
+from riakasaurus.datatypes import new
+import traceback
 
 MAX_LINK_HEADER_SIZE = 8192 - 8
 
@@ -122,10 +131,6 @@ class HTTPTransport(transport.FeatureDetection):
 
     """ HTTP Transport for Riak """
     def __init__(self, client, prefix=None):
-        if prefix:
-            self._prefix = prefix
-        else:
-            self._prefix = client._prefix
         self.host = client._host
         self.port = client._port
         self.client = client
@@ -204,25 +209,23 @@ class HTTPTransport(transport.FeatureDetection):
         construct and return a URL.
         """
         # Build 'http://hostname:port/prefix/bucket'
-        path = ''
-        path += '/' + (prefix or self._prefix)
+        path = '' if not prefix else '/%s' %prefix
 
         # Add '.../bucket'
         if bucket is not None:
-            path += '/' + urllib.quote_plus(bucket._name)
+            path += '/types/%s/buckets/%s' %(urllib.quote_plus(bucket.bucket_type),urllib.quote_plus(bucket.name))
 
         # Add '.../key'
         if key is not None:
-            path += '/' + urllib.quote_plus(key)
+            path += '/keys/%s' %urllib.quote_plus(key)
 
         # Add query parameters.
-        if params is not None:
+        if params:
             s = ''
             for key in params.keys():
                 if params[key] is not None:
                     if s != '':
                         s += '&'
-
                     s += urllib.quote_plus(key) + '='
                     s += urllib.quote_plus(str(params[key]))
 
@@ -240,13 +243,12 @@ class HTTPTransport(transport.FeatureDetection):
     @defer.inlineCallbacks
     def get_keys(self, bucket):
         params = {
-            'props': 'True',
+            'props': 'true',
             'keys': 'true'
         }
-        url = self.build_rest_path(bucket, params=params)
-
+        prefix = 'types/%s/buckets/%s/keys' %(bucket.bucket_type,bucket.name)
+        url = self.build_rest_path(prefix = prefix, params=params)
         headers, encoded_props = yield self.http_request('GET', url)
-
         if headers['http_code'] == 200:
             props = self.decodeJson(encoded_props)
         else:
@@ -259,7 +261,8 @@ class HTTPTransport(transport.FeatureDetection):
         """
         Set bucket properties
         """
-        url = self.build_rest_path(bucket)
+        prefix = 'types/%s/buckets/%s/props' %(bucket.bucket_type,bucket.name)
+        url = self.build_rest_path(prefix = prefix)
         headers = {'Content-Type': 'application/json'}
         content = self.encodeJson({'props': props})
 
@@ -496,12 +499,13 @@ class HTTPTransport(transport.FeatureDetection):
         defer.returnValue(self)
 
     @defer.inlineCallbacks
-    def get_buckets(self):
+    def get_buckets(self,bucket_type = 'default'):
         """
         Fetch a list of all buckets
         """
         params = {'buckets': 'true'}
-        url = self.build_rest_path(None, params=params)
+        prefix = '/types/%s/buckets' %bucket_type
+        url = self.build_rest_path(None, prefix = prefix,params=params)
         response = yield self.http_request('GET', url)
 
         headers, encoded_props = response[0:2]
@@ -518,9 +522,10 @@ class HTTPTransport(transport.FeatureDetection):
         Get properties for a bucket
         """
         # Run the request...
-        params = {'props': 'True', 'keys': 'False'}
-        url = self.build_rest_path(bucket, params=params)
+        prefix = 'types/%s/buckets/%s/props' %(bucket.bucket_type,bucket.name)
+        url = self.build_rest_path(prefix = prefix)
         response = yield self.http_request('GET', url)
+        print url
 
         headers = response[0]
         encoded_props = response[1]
@@ -541,7 +546,8 @@ class HTTPTransport(transport.FeatureDetection):
                             'not supported by this Riak node')
 
         # Run the request...
-        url = self.build_rest_path(bucket, 'props', prefix='buckets')
+        prefix = 'types/%s/buckets/%s/props' %(bucket.bucket_type,bucket.name)
+        url = self.build_rest_path(prefix = prefix)
         response = yield self.http_request('DELETE', url)
 
         headers = response[0]
@@ -563,7 +569,6 @@ class HTTPTransport(transport.FeatureDetection):
         if timeout is not None:
             job['timeout'] = timeout
         content = self.encodeJson(job)
-        #print content
 
         # Do the request...
         url = "/" + self.client._mapred_prefix
@@ -582,7 +587,7 @@ class HTTPTransport(transport.FeatureDetection):
         defer.returnValue(result)
 
     @defer.inlineCallbacks
-    def get_index(self, bucket, index, startkey, endkey=None,
+    def get_index(self, bucket, index, startkey, endkey=None,bucket_type='default',
             return_terms=False, max_results=None,continuation=None):
         """
         Performs a secondary index query.
@@ -599,18 +604,225 @@ class HTTPTransport(transport.FeatureDetection):
             else:
                 p[k]=v
         query_params = urllib.urlencode(p) if p else ''
-        segments = ["buckets", bucket, "index", index, str(startkey)]
+        segments = ["types",bucket_type,"buckets", bucket, "index", index, str(startkey)]
         if endkey:
             segments.append(str(endkey))
         uri = '/%s' % ('/'.join(segments))
         if p:
             uri="%s?%s" %(uri,urllib.urlencode(p))
-        print uri
         headers, data = response = yield self.get_request(uri)
         self.check_http_code(response, [200])
         jsonData = self.decodeJson(data)
         defer.returnValue(jsonData)
         #defer.returnValue(jsonData[u'keys'][:])
+
+    @defer.inlineCallbacks
+    def create_search_schema(self, schema,content):
+#        if not (yield self.pb_search_admin()):
+            #raise NotImplementedError("Yokozuna administration is not "
+                                      #"supported for this version")
+        url = '/search/schema/%s' %urllib.quote_plus(schema)
+        content_type =  'application/xml'
+        headers, body = response = yield self.put_request(url, content ,content_type = content_type)
+        defer.returnValue(True)
+
+    @defer.inlineCallbacks
+    def get_search_schema(self, schema):
+#        if not (yield self.pb_search_admin()):
+            #raise NotImplementedError("Yokozuna administration is not "
+                                      #"supported for this version")
+        url = '/search/schema/%s' %urllib.quote_plus(schema)
+        headers,body = response = yield self.get_request(url)
+        self.check_http_code(response, [200])
+        defer.returnValue(body)
+
+    @defer.inlineCallbacks
+    def create_search_index(self, index, schema=None, n_val=None):
+#        if not (yield self.pb_search_admin()):
+            #raise NotImplementedError("Yokozuna administration is not "
+                                      #"supported for this version")
+        url = '/search/index/%s' %urllib.unquote_plus(index)
+        req = {}
+        if schema:
+            req['schema'] = schema
+        if n_val:
+            req['n_val'] = n_val
+        data = self.encodeJson(req)
+        headers,body = response = yield self.put_request(url,data)
+        self.check_http_code(response, [409,204]) #returns 409 if already existed
+        defer.returnValue(True)
+
+    @defer.inlineCallbacks
+    def delete_search_index(self, index):
+#        if not (yield self.pb_search_admin()):
+            #raise NotImplementedError("Yokozuna administration is not "
+                                      #"supported for this version")
+        url = '/search/index/%s' %index
+        yield self.http_request('DELETE',url)
+        self.check_http_code(response, [200]) #need some header test here
+        defer.returnValue(True)
+
+    @defer.inlineCallbacks
+    def get_search_index(self, index):
+#        if not (yield self.pb_search_admin()):
+            #raise NotImplementedError("Yokozuna administration is not "
+                                      #"supported for this version")
+        url = '/search/index/%s' %urllib.unquote_plus(index)
+        headers,body = response = yield self.get_request(url)
+        self.check_http_code(response, [200])
+        data = self.decodeJson(body)
+        defer.returnValue(data)
+
+    @defer.inlineCallbacks
+    def list_search_indexes(self):
+#        if not (yield self.pb_search_admin()):
+            #raise NotImplementedError("Yokozuna administration is not "
+                                      #"supported for this version")
+        url = '/search/index'
+        headers,body = response = yield self.get_request(url)
+        self.check_http_code(response, [200])
+        data = self.decodeJson(body)
+        defer.returnValue(data)
+
+
+    @defer.inlineCallbacks
+    def fetch_datatype(self, bucket, key,*args,**kwargs):
+        """
+        fetch_datatype(bucket, key, r=None, pr=None, basic_quorum=None,
+                       notfound_ok=None, timeout=None, include_context=None)
+
+        Fetches the value of a Riak Datatype.
+
+        .. note:: This request is automatically retried :attr:`retries`
+           times if it fails due to network error.
+
+        :param r: the read quorum
+        :type r: integer, string, None
+        :param pr: the primary read quorum
+        :type pr: integer, string, None
+        :param basic_quorum: whether to use the "basic quorum" policy
+           for not-founds
+        :type basic_quorum: bool
+        :param notfound_ok: whether to treat not-found responses as successful
+        :type notfound_ok: bool
+        :param timeout: a timeout value in milliseconds
+        :type timeout: int
+        :param include_context: whether to return the opaque context
+          as well as the value, which is useful for removal operations
+          on sets and maps
+        :type include_context: bool
+        :rtype: a subclass of :class:`~riak.datatypes.Datatype`
+        """
+        url = 'types/%s/buckets/%s/datatypes/%s' %(bucket.bucket_type,bucket.name,key)
+        req = {}
+        #bug here, http property dont have a datatype option
+        #{u'old_vclock': 86400, u'pr': 0, u'allow_mult': False, u'big_vclock': 50, u'name': u'test_set', u'chash_keyfun': {u'fun': u'chash_std_keyfun', u'mod': u'riak_core_util'}, u'n_val': 3, u'notfound_ok': True, u'linkfun': {u'fun': u'mapreduce_linkfun', u'mod': u'riak_kv_wm_link_walker'}, u'pw': 0, u'last_write_wins': False, u'r': u'quorum', u'small_vclock': 50, u'rw': u'quorum', u'basic_quorum': False, u'postcommit': [], u'dw': u'quorum', u'w': u'quorum', u'young_vclock': 20, u'precommit': []}
+        if bucket.bucket_type == 'maps':
+            datatype = 'map'
+        if bucket.bucket_type == 'sets':
+            datatype = 'set'
+        if bucket.bucket_type == 'counters':
+            datatype = 'counter'
+        for attr in ['r','pr','basic_quorum','notfound_ok','include_context']:
+            if kwargs.get(attr,''):
+                req.__setitem__(attr,kwargs[attr])
+        header,body = response = yield self.get_request(url,req)
+        self.check_http_code(response, [200,404])
+        if header['http_code'] == 404:
+            result = new(datatype,bucket,key)
+            defer.returnValue(result)
+        else:
+            data = self.decodeJson(body)
+            data = self.decode_datatype(data,bucket,key)
+            defer.returnValue(data)
+
+    def parse_json_datatype(self,obj):
+        objs = {}
+        for k,v in obj.iteritems():
+            if k.endswith('_set'):
+                objs[(k,'set')]=frozenset(v)
+            elif k.endswith('_register'):
+                objs[(k,'register')]=v
+            elif k.endswith('_counter'):
+                objs[(k,'counter')]=long(v)
+            elif k.endswith('_flag'):
+                objs[(k,'flag')]=v
+            elif k.endswith('_map'):
+                objs[(k,'map')]=parse_json_datatype(v)
+        return objs
+
+    def decode_datatype(self,json,bucket,key):
+        dt = json['type']
+        value = json['value']
+        if dt == 'counter':
+            return Counter(value,bucket=bucket,key=key)
+        elif dt == 'set':
+            return Set(frozenset(value),bucket=bucket,key=key)
+        elif dt == 'map':
+            value = self.parse_json_datatype(value)
+            return Map(value,bucket = bucket,key = key)
+
+
+    def encode_operation(self,datatype):
+        if isinstance(datatype,Counter):
+            key = 'increment' if datatype.to_op() > 0 else 'decrement'
+            op = { key : datatype.to_op() } 
+        elif isinstance(datatype,Register):
+            op = {'assign' : datatype.to_op()}
+        elif isinstance(datatype,Flag):
+            op = 'enable' if True else 'disable'
+        elif isinstance(datatype,Set):
+            op = {}
+            if datatype.to_op() and datatype.to_op().get('adds',[]):
+                op['add_all'] = datatype.to_op()['adds']
+            if datatype.to_op() and datatype.to_op().get('removes',[]):
+                op['remove_all'] = datatype.to_op()['removes']
+            return op
+        elif isinstance(datatype,Map):
+            op = {
+                    'add' : [ '%s_%s' %(k,t) for k,t in datatype._adds ],
+                    'remove' : [ '%s_%s' %(k,t) for k,t in datatype._removes ],
+                    'update' : {},
+                  }
+            for (k,t),d in datatype._updates.iteritems():
+                op['update'][ '%s_%s' %( k,t ) ] = self.encode_operation(d ) 
+        else:
+            raise Exception("Unknown datatype")
+        return op
+
+    @defer.inlineCallbacks
+    def update_datatype(self, datatype, *args,**kwargs):
+        """
+        Updates a Riak Datatype. This operation is not idempotent and
+        so will not be retried automatically.
+
+        :param datatype: the datatype to update
+        :type datatype: a subclass of :class:`~riak.datatypes.Datatype`
+        :param w: the write quorum
+        :type w: integer, string, None
+        :param dw: the durable write quorum
+        :type dw: integer, string, None
+        :param pw: the primary write quorum
+        :type pw: integer, string, None
+        :param timeout: a timeout value in milliseconds
+        :type timeout: int
+        :param include_context: whether to return the opaque context
+          as well as the value, which is useful for removal operations
+          on sets and maps
+        :type include_context: bool
+        :rtype: a subclass of :class:`~riak.datatypes.Datatype`, bool
+        """
+        prefix = 'types/%s/buckets/%s/datatypes/%s' %(datatype.bucket.bucket_type,datatype.bucket.name,datatype.key)
+        req = {}
+#        if datatype.context:
+            #req.context = datatype.context
+        for attr in ['w','dw','pw','timeout','return_body','include_context']:
+            if kwargs.get(attr,''):
+                req.__setitem__(attr,kwargs[attr])
+        url = self.build_rest_path(prefix = prefix,params = req)
+        op = self.encodeJson(self.encode_operation(datatype))
+        header,body = response = yield self.post_request(url,op)
+        self.check_http_code(response, [204])
 
     @defer.inlineCallbacks
     def search(self, index, query, **params):
@@ -751,12 +963,9 @@ class HTTPTransport(transport.FeatureDetection):
         """
         Convert this RiakLink object to a link header string. Used internally.
         """
-        header = ''
-        header += '</'
-        header += self._prefix + '/'
-        header += urllib.quote_plus(link.get_bucket()) + '/'
-        header += urllib.quote_plus(link.get_key()) + '>; riaktag="'
-        header += urllib.quote_plus(link.get_tag()) + '"'
+        bucket = link.get_bucket()
+        key = "/types/%s/buckets/%s/keys/%s" %(bucket.bucket_type,bucket.name,link.get_key())
+        header = '<%s>; riaktag="%s"' %(key,urllib.quote_plus(link.get_tag()))
         return header
 
     def parse_links(self, links, linkHeaders):
@@ -805,31 +1014,13 @@ class HTTPTransport(transport.FeatureDetection):
 
         return self.http_request('GET', url)
 
-    def store_file(self, key, content_type="application/octet-stream",
-                   content=None):
-        url = self.build_rest_path(prefix='luwak', key=key)
-        headers = {
-            'Content-Type': content_type,
-            'X-Riak-ClientId': self._client_id
-        }
 
-        return self.do_put(url, headers, content, key=key)
 
-    @defer.inlineCallbacks
-    def get_file(self, key):
-        url = self.build_rest_path(prefix='luwak', key=key)
-        response = yield self.http_request('GET', url)
-        result = self.parse_body(response, [200, 300, 404])
-        if result is not None:
-            (vclock, data) = result
-            (headers, body) = data.pop()
-            defer.returnValue(body)
-
-    @defer.inlineCallbacks
-    def delete_file(self, key):
-        url = self.build_rest_path(prefix='luwak', key=key)
-        response = yield self.http_request('DELETE', url)
-        self.parse_body(response, [204, 404])
+    def put_request(self, uri=None, body=None, params=None,
+                     content_type="application/json"):
+        uri = self.build_rest_path(prefix=uri, params=params)
+        return self.http_request(
+            'PUT', uri, {'Content-Type': content_type}, body)
 
     def post_request(self, uri=None, body=None, params=None,
                      content_type="application/json"):
@@ -838,40 +1029,6 @@ class HTTPTransport(transport.FeatureDetection):
             'POST', uri, {'Content-Type': content_type}, body)
 
     # Utility functions used by Riak library.
-
-    def build_rest_path(self, bucket=None, key=None, params=None,
-                        prefix=None):
-        """
-        Given a RiakClient, RiakBucket, Key, LinkSpec, and Params,
-        construct and return a URL.
-        """
-        # Build 'http://hostname:port/prefix/bucket'
-        path = ''
-        path += '/' + (prefix or self._prefix)
-
-        # Add '.../bucket'
-        if bucket is not None:
-            path += '/' + urllib.quote_plus(bucket._name)
-
-        # Add '.../key'
-        if key is not None:
-            path += '/' + urllib.quote_plus(key)
-
-        # Add query parameters.
-        if params is not None:
-            s = ''
-            for key in params.keys():
-                if params[key] is not None:
-                    if s != '':
-                        s += '&'
-                    s += "%s=%s" % (
-                        urllib.quote_plus(key),
-                        urllib.quote_plus(str(params[key]))
-                    )
-            path += '?' + s
-
-        # Return.
-        return path
 
     def build_put_headers(self, robj):
         """Build the headers for a POST/PUT request."""
@@ -910,14 +1067,14 @@ class HTTPTransport(transport.FeatureDetection):
         result = {}
         if u'response' in json:
             result['num_found'] = json[u'response'][u'numFound']
-            result['max_score'] = float(json[u'response'][u'maxScore'])
-            docs = []
-            for doc in json[u'response'][u'docs']:
-                resdoc = {u'id': doc[u'id']}
-                if u'fields' in doc:
-                    for k, v in doc[u'fields'].iteritems():
-                        resdoc[k] = v
-                docs.append(resdoc)
+            result['max_score'] = float(json[u'response'].get(u'maxScore',0))
+            docs = json['response']['docs']
+#            for doc in json[u'response'][u'docs']:
+                #resdoc = {u'id': doc[u'_yz_rk']}
+                #if u'fields' in doc:
+                    #for k, v in doc[u'fields'].iteritems():
+                        #resdoc[k] = v
+                #docs.append(resdoc)
             result['docs'] = docs
         return result
 
@@ -958,3 +1115,5 @@ class HTTPTransport(transport.FeatureDetection):
             else:
                 retVal[key] = value
         return retVal
+
+

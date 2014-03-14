@@ -628,6 +628,7 @@ class PBCTransport(transport.FeatureDetection):
                                       "supported for this version")
         with (yield self._getFreeTransport()) as transport:
             ret = yield transport.get_search_index(index)
+            ret = self.decode_search_index(ret)
             defer.returnValue(ret)
 
 
@@ -640,6 +641,12 @@ class PBCTransport(transport.FeatureDetection):
             ret = yield transport.delete_search_index(index)
             defer.returnValue(True)
 
+    def decode_search_index(self,index):
+        ret = {}
+        for i in ['name','n_val','schema']:
+            ret[i] = getattr(index,i,'')
+        return ret
+
     @defer.inlineCallbacks
     def list_search_indexes(self):
         if not (yield self.pb_search_admin()):
@@ -647,7 +654,7 @@ class PBCTransport(transport.FeatureDetection):
                                       "supported for this version")
         with (yield self._getFreeTransport()) as transport:
             ret = yield transport.list_search_indexes()
-            ret = [index for index in ret.index]
+            ret = [self.decode_search_index(index) for index in ret.index]
             defer.returnValue(ret)
 
     @defer.inlineCallbacks

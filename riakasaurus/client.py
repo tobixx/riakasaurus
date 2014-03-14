@@ -23,7 +23,7 @@ class RiakClient(object):
     Riak.
     """
     def __init__(self, host='127.0.0.1', port=8098,
-                prefix='riak', mapred_prefix='mapred',
+                mapred_prefix='mapred',
                 client_id=None, r_value="default", w_value="default",
                 dw_value="default", transport=transport.HTTPTransport,
                 request_timeout=None):
@@ -34,7 +34,6 @@ class RiakClient(object):
         """
         self._host = host
         self._port = port
-        self._prefix = prefix
         self._mapred_prefix = mapred_prefix
         if client_id:
             self._client_id = client_id

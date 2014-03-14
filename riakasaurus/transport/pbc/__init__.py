@@ -393,7 +393,7 @@ class RiakPBC(Int32StringReceiver):
         req.bucket = bucket
         req.key = key
         req.type = bucket_type
-        for attr in ['r','pr','basic_quorum','notfound_ok','timeout,include_context']:
+        for attr in ['r','pr','basic_quorum','notfound_ok','timeout','include_context']:
             if kwargs.get(attr,''):
                 setattr(req,attr,kwargs[attr])
         d = self.__send(code, req)

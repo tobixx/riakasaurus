@@ -614,7 +614,7 @@ class RiakBucket(object):
         Queries a secondary index over objects in this bucket, returning keys.
         """
         return self._client.transport.get_index(
-            self._name, index, startkey, endkey,return_terms=return_terms,max_results=max_results,continuation=continuation,bucket_type = self.bucket_type)
+            self._name,index, startkey, endkey,return_terms=return_terms,max_results=max_results,continuation=continuation,bucket_type = self.bucket_type)
 
     def list_keys(self):
         """ Same as get_keys - for txRiak compat """
@@ -636,7 +636,6 @@ class RiakBucket(object):
 
         # Get the current key list
         keys = yield self.get_keys()
-
         # Major key-killing action
         if enable_parallel:
             for l in chunks(keys,parallel):

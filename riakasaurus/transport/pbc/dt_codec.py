@@ -15,6 +15,7 @@ MapField = riak_dt_pb2.MapField
 MapEntry = riak_dt_pb2.MapEntry
 MapUpdate = riak_dt_pb2.MapUpdate
 
+
 def encode_operation(datatype,update_req):
     try:
         dt_type = DATATYPE_CLASS_DICT[datatype.__class__.__name__]
@@ -204,6 +205,7 @@ DATATYPE_CLASS_DICT = {
         'Flag' : 'flag',
         'Register' : 'register',
 }
+
 DATATYPE_MAPFIELD_DICT = {
         'counter' : 'counter_op',
         'set' : 'set_op',
