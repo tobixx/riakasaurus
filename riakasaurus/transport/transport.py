@@ -132,7 +132,6 @@ class FeatureDetection(object):
         :rtype: bool
         """
         version = yield self.server_version()
-        #print version
         defer.returnValue(  version >= versions[2.0] )
 
     @defer.inlineCallbacks

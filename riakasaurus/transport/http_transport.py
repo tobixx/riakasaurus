@@ -664,9 +664,9 @@ class HTTPTransport(transport.FeatureDetection):
 
     @defer.inlineCallbacks
     def get_search_index(self, index):
-#        if not (yield self.pb_search_admin()):
-            #raise NotImplementedError("Yokozuna administration is not "
-                                      #"supported for this version")
+        if not (yield self.pb_search_admin()):
+            raise NotImplementedError("Yokozuna administration is not "
+                                      "supported for this version")
         url = '/search/index/%s' %urllib.unquote_plus(index)
         headers,body = response = yield self.get_request(url)
         self.check_http_code(response, [200])

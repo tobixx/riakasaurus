@@ -97,7 +97,6 @@ class PBCTransport(transport.FeatureDetection):
     POOL_RETRY = 30
 
     def __init__(self, client):
-        self._prefix = client._prefix
         self.host = client._host
         self.port = client._port
         self.client = client
@@ -575,6 +574,7 @@ class PBCTransport(transport.FeatureDetection):
         for a in attrs:
             if hasattr(ret.props,a):
                 res[a]=getattr(ret.props,a)
+        print res
         defer.returnValue(res)
 
     @defer.inlineCallbacks
