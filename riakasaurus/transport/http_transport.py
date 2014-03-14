@@ -714,14 +714,7 @@ class HTTPTransport(transport.FeatureDetection):
         """
         url = 'types/%s/buckets/%s/datatypes/%s' %(bucket.bucket_type,bucket.name,key)
         req = {}
-        #bug here, http property dont have a datatype option
-        #{u'old_vclock': 86400, u'pr': 0, u'allow_mult': False, u'big_vclock': 50, u'name': u'test_set', u'chash_keyfun': {u'fun': u'chash_std_keyfun', u'mod': u'riak_core_util'}, u'n_val': 3, u'notfound_ok': True, u'linkfun': {u'fun': u'mapreduce_linkfun', u'mod': u'riak_kv_wm_link_walker'}, u'pw': 0, u'last_write_wins': False, u'r': u'quorum', u'small_vclock': 50, u'rw': u'quorum', u'basic_quorum': False, u'postcommit': [], u'dw': u'quorum', u'w': u'quorum', u'young_vclock': 20, u'precommit': []}
-        if bucket.bucket_type == 'maps':
-            datatype = 'map'
-        if bucket.bucket_type == 'sets':
-            datatype = 'set'
-        if bucket.bucket_type == 'counters':
-            datatype = 'counter'
+        datatype = yield bucket.get_property('datatype')
         for attr in ['r','pr','basic_quorum','notfound_ok','include_context']:
             if kwargs.get(attr,''):
                 req.__setitem__(attr,kwargs[attr])
