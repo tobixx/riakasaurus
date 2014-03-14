@@ -574,7 +574,7 @@ class PBCTransport(transport.FeatureDetection):
         for a in attrs:
             if hasattr(ret.props,a):
                 res[a]=getattr(ret.props,a)
-        print res
+        #print res
         defer.returnValue(res)
 
     @defer.inlineCallbacks

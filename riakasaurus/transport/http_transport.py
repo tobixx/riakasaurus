@@ -525,7 +525,6 @@ class HTTPTransport(transport.FeatureDetection):
         prefix = 'types/%s/buckets/%s/props' %(bucket.bucket_type,bucket.name)
         url = self.build_rest_path(prefix = prefix)
         response = yield self.http_request('GET', url)
-        print url
 
         headers = response[0]
         encoded_props = response[1]
