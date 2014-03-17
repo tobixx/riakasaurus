@@ -21,6 +21,7 @@ from twisted.internet import defer
 
 from riakasaurus.riak_object import RiakObject
 from twisted.python import log
+from twisted.internet import defer,reactor
 
 import mimetypes
 
@@ -404,9 +405,19 @@ class RiakBucket(object):
         """
         return self.set_property('n_val', nval)
 
-    #TODO this function not apply to official way
-    def set_search_index(self,index):
-        return self.set_property('search_index',index)
+    @defer.inlineCallbacks
+    def set_search_index(self,index,max_retry = 10):
+        try:
+            log.msg('set search index')
+            yield self.set_property('search_index',index)
+        except:
+            log.msg('Error set search index,retrying')
+            if max_retry > 0:
+                d = defer.Deferred()
+                d.addCallback(self.set_search_index,max_retry-1)
+                reactor.callLater(2,d.callback,index)
+                res = yield d
+                defer.returnValue(res)
 
     @defer.inlineCallbacks
     def get_search_index(self):
@@ -573,27 +584,25 @@ class RiakBucket(object):
         defer.returnValue(pch)
 
     @defer.inlineCallbacks
-    def enable_search(self):
+    def enable_search(self,index_name = '',schema = ''):
         """
         Enable search for this bucket by installing the precommit hook to
         index objects in it.
         Returns deferred
+        default index will use the bucket name as index
+        default schema will use the default schema(dynamic) as index
         """
-        pch = yield self.get_property("search")
-        if not pch:
-            yield self.set_property("search",True)
-
-        defer.returnValue(True)
-
-    @defer.inlineCallbacks
-    def disable_search(self):
-        """
-        Disable search for this bucket by removing the precommit hook to
-        index objects in it.
-        """
-        pch = yield self.get_property("search")
-        if pch:
-            yield self.set_property("search", False)
+        current_index = yield self.get_search_index()
+        index_name = self.name if not index_name else index_name
+        log.msg( 'Enabling search on riak bucket %s' %self.get_name() )
+        indexes = yield self._client.get_search_index(index_name)
+        if not indexes:
+            if not schema:
+                yield self._client.create_search_index(index_name)
+            else:
+                yield self._client.create_search_index(index_name,schema)
+        if current_index != index_name:
+            yield self.set_search_index(index_name)
         defer.returnValue(True)
 
     @defer.inlineCallbacks
@@ -645,6 +654,7 @@ class RiakBucket(object):
             for key in keys:
                 obj = yield self.get_binary(key)
                 yield obj.delete()
+        yield self.reset_properties()
 
     @defer.inlineCallbacks
     def fetch_datatype(self,key,r=None, pr=None,

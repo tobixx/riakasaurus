@@ -15,6 +15,7 @@ from riakasaurus import mapreduce, bucket
 from riakasaurus.search import RiakSearch
 
 from riakasaurus import transport
+from twisted.python import log
 
 
 class RiakClient(object):
@@ -80,11 +81,15 @@ class RiakClient(object):
         """
         return self.transport.create_search_index(index, schema, n_val)
 
+    @defer.inlineCallbacks
     def get_search_index(self, index):
         """
         Returns a yokozuna search index or None.
         """
-        return self.transport.get_search_index(index)
+        try:
+            res = yield self.transport.get_search_index(index)
+        except:
+            defer.returnValue( None )
 
     def list_search_indexes(self):
         """
@@ -104,11 +109,16 @@ class RiakClient(object):
         """
         return self.transport.create_search_schema(schema,content)
 
+    @defer.inlineCallbacks
     def get_search_schema(self, schema):
         """
         Returns a yokozuna search schema.
         """
-        return self.transport.get_search_schema(schema)
+        try:
+            res = yield self.transport.get_search_schema(schema)
+            defer.returnValue(res)
+        except:
+            defer.returnValue( None )
 
     def get_r(self):
         """

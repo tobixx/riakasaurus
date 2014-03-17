@@ -504,7 +504,7 @@ class HTTPTransport(transport.FeatureDetection):
         Fetch a list of all buckets
         """
         params = {'buckets': 'true'}
-        prefix = '/types/%s/buckets' %bucket_type
+        prefix = 'types/%s/buckets' %bucket_type
         url = self.build_rest_path(None, prefix = prefix,params=params)
         response = yield self.http_request('GET', url)
 
@@ -512,6 +512,10 @@ class HTTPTransport(transport.FeatureDetection):
         if headers['http_code'] == 200:
             props = self.decodeJson(encoded_props)
         else:
+            print url
+            print headers
+            print response
+            log.err()
             raise Exception('Error getting buckets.')
 
         defer.returnValue(props['buckets'])
@@ -657,9 +661,12 @@ class HTTPTransport(transport.FeatureDetection):
             #raise NotImplementedError("Yokozuna administration is not "
                                       #"supported for this version")
         url = '/search/index/%s' %index
-        yield self.http_request('DELETE',url)
-        self.check_http_code(response, [200]) #need some header test here
-        defer.returnValue(True)
+        response = yield self.http_request('DELETE',url)
+        try:
+            self.check_http_code(response, [200]) #need some header test here
+            defer.returnValue(True)
+        except:
+            log.err()
 
     @defer.inlineCallbacks
     def get_search_index(self, index):

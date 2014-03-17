@@ -77,6 +77,7 @@ RpbListKeysResp = riak_kv_pb2.RpbListKeysResp
 RpbGetBucketReq = riak_pb2.RpbGetBucketReq
 RpbGetBucketResp = riak_pb2.RpbGetBucketResp
 RpbSetBucketReq = riak_pb2.RpbSetBucketReq
+RpbResetBucketReq = riak_pb2.RpbResetBucketReq
 RpbMapRedReq = riak_kv_pb2.RpbMapRedReq
 RpbMapRedResp = riak_kv_pb2.RpbMapRedResp
 
@@ -195,7 +196,8 @@ class RiakPBC(Int32StringReceiver):
         MSG_CODE_PING_RESP,
         MSG_CODE_DEL_RESP,
         MSG_CODE_SET_BUCKET_RESP,
-        MSG_CODE_SET_CLIENT_ID_RESP
+        MSG_CODE_SET_CLIENT_ID_RESP,
+        MSG_CODE_RESET_BUCKET_RESP
     )
 
     rwNums = {
@@ -517,6 +519,13 @@ class RiakPBC(Int32StringReceiver):
 
         return self.__send(code, request)
 
+    def reset_bucket_props(self,bucket):
+        code = pack('B', MSG_CODE_RESET_BUCKET_REQ)
+        request = RpbResetBucketReq()
+        request.bucket = bucket.name
+        request.type = bucket.bucket_type
+        return self.__send(code,request)
+
     def search(self, index, query, **kwargs):
 
         code = pack('B', MSG_CODE_SEARCH_QUERY_REQ)
@@ -597,7 +606,6 @@ class RiakPBC(Int32StringReceiver):
             else:
                 raise exceptions.RiakPBCException(
                     "Property not implemented: %s" % k)
-
         return self.__send(code, request)
 
     # ------------------------------------------------------------------
@@ -680,6 +688,12 @@ class RiakPBC(Int32StringReceiver):
             if not self.factory.d.called:
                 self.factory.d.callback(True)
             return
+        elif code == MSG_CODE_ERROR_RESP:
+            response = self.riakResponses[code]()
+            response.ParseFromString(data[1:])
+            returnOrRaiseException('%s (%d)' % (
+                response.errmsg, response.errcode)
+            )
         elif code == MSG_CODE_MAPRED_RESP:
             # listKeys is special as it returns multiple response messages
             # each message can contain multiple keys
@@ -717,6 +731,7 @@ class RiakPBC(Int32StringReceiver):
                     self.factory.d.callback(self.__indexResultList)
                     self.__indexResultList = []
 
+
         elif code == MSG_CODE_LIST_KEYS_RESP:
             # listKeys is special as it returns multiple response messages
             # each message can contain multiple keys
@@ -749,10 +764,6 @@ class RiakPBC(Int32StringReceiver):
                         self.__class__.__name__,
                         response.__class__.__name__,
                         str(response).replace('\n', ' ')
-                    )
-                if code == MSG_CODE_ERROR_RESP:
-                    returnOrRaiseException('%s (%d)' % (
-                        response.errmsg, response.errcode)
                     )
             if not self.factory.d.called:
                 self.factory.d.callback(response)

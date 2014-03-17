@@ -571,11 +571,20 @@ class PBCTransport(transport.FeatureDetection):
             ret = yield transport.getBucketProperties(bucket.name,bucket.bucket_type)
         res = {}
         attrs = ['n_val', 'allow_mult','last_write_wins','precommit','has_precommit','postcommit','has_postcommit','chash_keyfun','linkfun','old_vclock','young_vclock','big_vclock','small_vclock','pr','r','w','pw','dw','rw','basic_quorum','notfound_ok','backend','search','repl','search_index','datatype']
+        if not attrs:
+            defer.returnValue(res)
         for a in attrs:
             if hasattr(ret.props,a):
                 res[a]=getattr(ret.props,a)
         #print res
         defer.returnValue(res)
+
+    @defer.inlineCallbacks
+    def reset_bucket_props(self,bucket):
+        with (yield self._getFreeTransport()) as transport:
+            ret = yield transport.reset_bucket_props(bucket)
+            defer.returnValue(ret)
+
 
     @defer.inlineCallbacks
     def get_keys(self, bucket):
