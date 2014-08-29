@@ -57,7 +57,7 @@ class Tests(unittest.TestCase):
         yield self.bucket.purge_keys()
 
     @defer.inlineCallbacks
-    def test_secondary_index(self):
+    def test_secondary_index_mapred(self):
         log.msg("*** secondary_index")
         yield self.bucket.enable_search()
 
@@ -73,20 +73,54 @@ class Tests(unittest.TestCase):
 
         results = yield self.client.index(self.bucket_name,
                                           'field1_bin', 'val2').run()
-        
+
         r1 = yield results[0].get()
 
-        self.assertEqual(r1.get_key(), u'foo2')
+        self.assertEqual(r1.get_key(), 'foo2')
 
-        results = yield self.client.index(self.bucket_name, 'field2_int', 1,
-                                          2000).run()
+        log.msg("done secondary_index")
 
-        r1 = []
-        for i in results:
-            r1.append((yield i.get()).get_key())
+    @defer.inlineCallbacks
+    def test_get_index(self):
+        log.msg("*** secondary_index")
+        yield self.bucket.enable_search()
 
-        self.assertEqual(sorted(r1),
+        obj = self.bucket.new('foo1', {'field1': 'val1', 'field2': 1001})
+        obj.add_index('field1_bin', 'val1')
+        obj.add_index('field2_int', 1001)
+        yield obj.store()
+
+        obj = self.bucket.new('foo2', {'field1': 'val2', 'field2': 1003})
+        obj.add_index('field1_bin', 'val2')
+        obj.add_index('field2_int', 1003)
+        yield obj.store()
+
+        results = yield self.bucket.get_index('field2_int', 1, 2000)
+
+        self.assertEqual(sorted(results),
                          ['foo1', 'foo2'])
 
         log.msg("done secondary_index")
 
+    @defer.inlineCallbacks
+    def test_non_ascii_keys(self):
+        log.msg("*** secondary_index")
+        yield self.bucket.enable_search()
+
+        obj = self.bucket.new('foo1', {'field1': 'val1', 'field2': 1001})
+        obj.add_index('field1_bin', 'val1')
+        obj.add_index('field2_int', 1001)
+        yield obj.store()
+
+        obj = self.bucket.new(
+            'foo\xe2\x98\x83', {'field1': 'val2', 'field2': 1003})
+        obj.add_index('field1_bin', 'val2')
+        obj.add_index('field2_int', 1003)
+        yield obj.store()
+
+        results = yield self.bucket.get_index('field2_int', 1, 2000)
+
+        self.assertEqual(sorted(results),
+                         ['foo1', 'foo\xe2\x98\x83'])
+
+        log.msg("done secondary_index")

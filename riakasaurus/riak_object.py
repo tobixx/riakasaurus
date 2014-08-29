@@ -17,13 +17,16 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 """
-import types, copy
+
+import types
+import copy
 
 from twisted.internet import defer
 
-from riakasaurus import RiakError
+from riakasaurus.exceptions import RiakError
 from riakasaurus.riak_index_entry import RiakIndexEntry
 from riakasaurus.metadata import *
+
 
 class RiakObject(object):
     """
@@ -43,7 +46,8 @@ class RiakObject(object):
         :type key: string
         """
         try:
-            if isinstance(key, basestring):
+            # This allows non-ASCII bytestrings, which should be legal.
+            if isinstance(key, unicode):
                 key = key.encode('ascii')
         except UnicodeError:
             raise TypeError('Unicode keys are not supported.')
@@ -65,7 +69,7 @@ class RiakObject(object):
 
         :rtype: RiakBucket
         """
-        return self._bucket;
+        return self._bucket
 
     def get_key(self):
         """
@@ -74,7 +78,6 @@ class RiakObject(object):
         :rtype: string
         """
         return self._key
-
 
     def get_data(self):
         """
@@ -136,14 +139,14 @@ class RiakObject(object):
             content_type = self.get_content_type()
             decoder = self._bucket.get_decoder(content_type)
             if decoder is None:
-                # if no decoder, just set as string data for application to handle
+                # if no decoder, just set as string data for
+                # application to handle
                 self._data = data
             else:
                 self._data = decoder(data)
         else:
             self._data = data
         return self
-
 
     def get_metadata(self):
         """
@@ -167,15 +170,15 @@ class RiakObject(object):
 
     def get_usermeta(self):
         if MD_USERMETA in self._metadata:
-          return self._metadata[MD_USERMETA]
+            return self._metadata[MD_USERMETA]
         else:
-          return {}
+            return {}
 
     def set_usermeta(self, usermeta):
         """
-        Sets the custom user metadata on this object. This doesn't include things
-        like content type and links, but only user-defined meta attributes stored
-        with the Riak object.
+        Sets the custom user metadata on this object. This doesn't include
+        things like content type and links, but only user-defined meta
+        attributes stored with the Riak object.
 
         :param userdata: The user metadata to store.
         :type userdata: dict
@@ -213,11 +216,13 @@ class RiakObject(object):
         if not field and not value:
             ries = self._metadata[MD_INDEX][:]
         elif field and not value:
-            ries = [x for x in self._metadata[MD_INDEX] if x.get_field() == field]
+            ries = [x for x in self._metadata[MD_INDEX]
+                    if x.get_field() == field]
         elif field and value:
             ries = [RiakIndexEntry(field, value)]
         else:
-            raise Exception("Cannot pass value without a field name while removing index")
+            raise Exception(
+                "Cannot pass value without a field name while removing index")
 
         for rie in ries:
             if rie in self._metadata[MD_INDEX]:
@@ -228,10 +233,11 @@ class RiakObject(object):
 
     def set_indexes(self, indexes):
         """
-        Replaces all indexes on a Riak object. Currenly supports an iterable of 2 item tuples,
-        (field, value)
+        Replaces all indexes on a Riak object. Currenly supports an iterable of
+        2 item tuples, (field, value)
 
-        :param indexes: iterable of 2 item tuples consisting the field and value.
+        :param indexes: iterable of 2 item tuples consisting the field and
+                        value.
         :rtype: self
         """
         new_indexes = []
@@ -242,9 +248,10 @@ class RiakObject(object):
 
         return self
 
-    def get_indexes(self, field = None):
+    def get_indexes(self, field=None):
         """
-        Get a list of the index entries for this object. If a field is provided, returns a list
+        Get a list of the index entries for this object. If a field is
+        provided, returns a list
 
         :param field: The index field.
         :type field: string or None
@@ -253,7 +260,8 @@ class RiakObject(object):
         if field == None:
             return self._metadata[MD_INDEX]
         else:
-            return [x.get_value() for x in self._metadata[MD_INDEX] if x.get_field() == field]
+            return [x.get_value() for x in self._metadata[MD_INDEX]
+                    if x.get_field() == field]
 
     def exists(self):
         """
@@ -268,8 +276,9 @@ class RiakObject(object):
 
     def get_content_type(self):
         """
-        Get the content type of this object. This is either ``application/json``, or
-        the provided content type if the object was created via
+        Get the content type of this object. This is either
+        ``application/json``, or the provided content type if the object was
+        created via
         :func:`RiakBucket.new_binary <riak.bucket.RiakBucket.new_binary>`.
 
         :rtype: string
@@ -297,9 +306,11 @@ class RiakObject(object):
         """
         Replaces all links to a RiakObject
 
-        :param links: An iterable of 2-item tuples, consisting of (RiakObject, tag). This could also be an iterable of
-            just a RiakObject, instead of the tuple, then a tag of None would be used. Lastly, it could also be an
-            iterable of RiakLink. They have tags built-in.
+        :param links: An iterable of 2-item tuples, consisting of
+        (RiakObject, tag). This could also be an iterable of
+            just a RiakObject, instead of the tuple, then a tag of None would
+            be used. Lastly, it could also be an iterable of RiakLink. They
+            have tags built-in.
         :param all_link: A boolean indicates if links are all RiakLink objects
             This speeds up the operation.
         """
@@ -382,7 +393,8 @@ class RiakObject(object):
             return []
 
     @defer.inlineCallbacks
-    def store(self, w=None, dw=None, pw=None, return_body=True, if_none_match=False):
+    def store(self, w=None, dw=None, pw=None, return_body=True,
+              if_none_match=False):
         """
         Store the object in Riak. When this operation completes, the
         object could contain new metadata and possibly new data if Riak
@@ -390,18 +402,18 @@ class RiakObject(object):
         vector clock.
 
         :param w: W-value, wait for this many partitions to respond
-         before returning to client.
+                  before returning to client.
         :type w: integer
         :param dw: DW-value, wait for this many partitions to
-         confirm the write before returning to client.
+                   confirm the write before returning to client.
         :type dw: integer
-        :param pw: PW-value, require this many primary partitions to be available
-         before performing the put
+        :param pw: PW-value, require this many primary partitions to be
+                   available before performing the put
         :type pw: integer
         :param return_body: if the newly stored object should be retrieved
         :type return_body: bool
         :param if_none_match: Should the object be stored only if there is no
-         key previously defined
+                              key previously defined
         :type if_none_match: bool
         :rtype: self
         """
@@ -414,13 +426,17 @@ class RiakObject(object):
         t = self._client.get_transport()
 
         if self._key is None:
-            key, vclock, metadata = yield t.put_new(self, w=w, dw=dw, pw=pw, return_body=return_body, if_none_match=if_none_match)
+            key, vclock, metadata = yield t.put_new(self, w=w, dw=dw, pw=pw,
+                return_body=return_body, if_none_match=if_none_match)
+
             self._exists = True
             self._key = key
             self._vclock = vclock
             self.set_metadata(metadata)
         else:
-            Result = yield t.put(self, w=w, dw=dw, pw=pw, return_body=return_body, if_none_match=if_none_match)
+            Result = yield t.put(self, w=w, dw=dw, pw=pw,
+                return_body=return_body, if_none_match=if_none_match)
+
             if Result is not None:
                 self.populate(Result)
 
@@ -480,22 +496,23 @@ class RiakObject(object):
         Delete this object from Riak.
 
         :param rw: RW-value. Wait until this many partitions have
-            deleted the object before responding. (deprecated in Riak 1.0+, use R/W/DW)
+                   deleted the object before responding. (deprecated in
+                   Riak 1.0+, use R/W/DW)
         :type rw: integer
         :param r: R-value, wait for this many partitions to read object
-         before performing the put
+                  before performing the put
         :type r: integer
         :param w: W-value, wait for this many partitions to respond
-         before returning to client.
+                  before returning to client.
         :type w: integer
         :param dw: DW-value, wait for this many partitions to
-         confirm the write before returning to client.
+                   confirm the write before returning to client.
         :type dw: integer
-        :param pr: PR-value, require this many primary partitions to be available
-         before performing the read that precedes the put
+        :param pr: PR-value, require this many primary partitions to be
+                   available before performing the read that precedes the put
         :type pr: integer
-        :param pr: PW-value, require this many primary partitions to be available
-         before performing the put
+        :param pr: PW-value, require this many primary partitions to be
+                   available before performing the put
         :type pw: integer
         :rtype: self
         """
@@ -511,7 +528,7 @@ class RiakObject(object):
         self.clear()
         defer.returnValue(self)
 
-    def clear(self) :
+    def clear(self):
         """
         Reset this object.
 
@@ -524,7 +541,7 @@ class RiakObject(object):
         self._siblings = []
         return self
 
-    def vclock(self) :
+    def vclock(self):
         """
         Get the vclock of this object.
 
@@ -532,7 +549,7 @@ class RiakObject(object):
         """
         return self._vclock
 
-    def populate(self, Result) :
+    def populate(self, Result):
         """
         Populate the object based on the return from get.
 
@@ -553,7 +570,7 @@ class RiakObject(object):
             if len(contents) > 0:
                 (metadata, data) = contents.pop(0)
                 self._exists = True
-                if not metadata.has_key(MD_INDEX):
+                if not (MD_INDEX in metadata):
                     metadata[MD_INDEX] = []
                 self.set_metadata(metadata)
                 if data:        # needed for HEAD support
@@ -568,7 +585,8 @@ class RiakObject(object):
                 for sibling in siblings:
                     sibling.set_siblings(siblings)
         else:
-            raise RiakError("do not know how to handle type " + str(type(Result)))
+            raise RiakError("do not know how to handle type " +
+                            str(type(Result)))
 
     def has_siblings(self):
         """
@@ -626,7 +644,7 @@ class RiakObject(object):
         :rtype: array of RiakObject
         """
         a = []
-        
+
         for i in range(self.get_sibling_count()):
             b = yield self.get_sibling(i, r)
 
@@ -638,8 +656,8 @@ class RiakObject(object):
 
         .. warning::
 
-            Make sure this object is at index 0 so get_siblings(0) always returns
-            the current object
+            Make sure this object is at index 0 so get_siblings(0) always
+            returns the current object
         """
         try:
             i = siblings.index(self)
@@ -663,7 +681,7 @@ class RiakObject(object):
         """
         mr = RiakMapReduce(self._client)
         mr.add(self._bucket._name, self._key)
-        return apply(mr.add, args)
+        return mr.add(*args)
 
     def link(self, *args):
         """
@@ -674,7 +692,7 @@ class RiakObject(object):
         """
         mr = RiakMapReduce(self._client)
         mr.add(self._bucket._name, self._key)
-        return apply(mr.link, args)
+        return mr.link(*args)
 
     def map(self, *args):
         """
@@ -685,7 +703,7 @@ class RiakObject(object):
         """
         mr = RiakMapReduce(self._client)
         mr.add(self._bucket._name, self._key)
-        return apply(mr.map, args)
+        return mr.map(*args)
 
     def reduce(self, params):
         """
@@ -696,13 +714,13 @@ class RiakObject(object):
         """
         mr = RiakMapReduce(self._client)
         mr.add(self._bucket._name, self._key)
-        return apply(mr.reduce, params)
+        return mr.reduce(*params)
 
     def add_meta_data(self, key, data):
         """
         Riakasaurus function for adding metadata
         """
-        self._metadata[MD_USERMETA][key] = data 
+        self._metadata[MD_USERMETA][key] = data
         return self
 
     def get_all_meta_data(self):

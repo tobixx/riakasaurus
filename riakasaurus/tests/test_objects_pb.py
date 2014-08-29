@@ -1,10 +1,6 @@
 from twisted.internet import defer, reactor
 from twisted.python import log
 
-from riakasaurus.tx_riak_pb import RiakPBCClient
-from riakasaurus.riak_kv_pb2 import *
-from riakasaurus.riak_pb2 import *
-
 from test_objects import Tests
 from riakasaurus import riak, transport
 
@@ -25,7 +21,7 @@ class Tests_PB(Tests):
         self.client = riak.RiakClient(client_id=RIAK_CLIENT_ID,
                                       host='127.0.0.1',
                                       port=8087,
-                                      transport = transport.PBCTransport)
+                                      transport=transport.PBCTransport)
         # self.client.debug = 0
         # self.client.get_transport().debug = 0
         self.bucket_name = BUCKET_PREFIX + self.id().rsplit('.', 1)[-1]
@@ -89,10 +85,7 @@ class Tests_PB(Tests):
         self.assertTrue(meta_key1 in metas)
         self.assertTrue(metas[meta_key1] == meta_data)
         log.msg('done meta_data_simple')
-        
+
     def test_link_walking(self):
         """mapred not supported yet, so skip test"""
         self.assertTrue(True)
-        
-
-        

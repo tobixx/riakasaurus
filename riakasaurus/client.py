@@ -24,8 +24,9 @@ class RiakClient(object):
     """
     def __init__(self, host='127.0.0.1', port=8098,
                 prefix='riak', mapred_prefix='mapred',
-                client_id=None, r_value="default", w_value="default", dw_value="default",
-                transport=transport.HTTPTransport):
+                client_id=None, r_value="default", w_value="default",
+                dw_value="default", transport=transport.HTTPTransport,
+                request_timeout=None):
         """
         Construct a new RiakClient object.
 
@@ -54,7 +55,12 @@ class RiakClient(object):
                           'text/json': json.loads}
         self._solr = None
 
-        self.transport = transport(self) 
+        self.request_timeout = request_timeout
+
+        self.transport = transport(self)
+
+    def setRequestTimeout(self, timeout):
+        self.request_timeout = timeout
 
     def get_transport(self):
         return self.transport
@@ -77,8 +83,8 @@ class RiakClient(object):
 
     def set_rw(self, rw):
         """
-        Set the RW-value for this ``RiakClient`` instance. See :func:`set_r` for a
-        description of how these values are used.
+        Set the RW-value for this ``RiakClient`` instance. See :func:`set_r`
+        for a description of how these values are used.
 
         :param rw: The RW value.
         :type rw: integer
@@ -97,8 +103,8 @@ class RiakClient(object):
 
     def set_pw(self, pw):
         """
-        Set the PW-value for this ``RiakClient`` instance. See :func:`set_r` for a
-        description of how these values are used.
+        Set the PW-value for this ``RiakClient`` instance. See :func:`set_r`
+        for a description of how these values are used.
 
         :param pw: The W value.
         :type pw: integer
@@ -117,8 +123,8 @@ class RiakClient(object):
 
     def set_pr(self, pr):
         """
-        Set the PR-value for this ``RiakClient`` instance. See :func:`set_r` for a
-        description of how these values are used.
+        Set the PR-value for this ``RiakClient`` instance. See :func:`set_r`
+        for a description of how these values are used.
 
         :param pr: The PR value.
         :type pr: integer
@@ -239,13 +245,15 @@ class RiakClient(object):
         """
         return bucket.RiakBucket(self, name)
 
-    def is_alive(self):
+    def ping(self):
         """
         Check if the Riak server for this RiakClient is alive.
         :returns: True if alive -- via deferred.
         """
 
         return self.transport.ping()
+
+    is_alive = ping
 
     def add(self, *args):
         """
@@ -254,7 +262,7 @@ class RiakClient(object):
         :returns: RiakMapReduce
         """
         mr = mapreduce.RiakMapReduce(self)
-        return apply(mr.add, args)
+        return mr.add(*args)
 
     def search(self, *args):
         """
@@ -262,7 +270,7 @@ class RiakClient(object):
         see RiakMapReduce.search()
         """
         mr = mapreduce.RiakMapReduce(self)
-        return apply(mr.search, args)
+        return mr.search(*args)
 
     def link(self, args):
         """
@@ -271,7 +279,7 @@ class RiakClient(object):
         :returns: RiakMapReduce
         """
         mr = mapreduce.RiakMapReduce(self)
-        return apply(mr.link, args)
+        return mr.link(*args)
 
     def list_buckets(self):
         """
@@ -290,7 +298,26 @@ class RiakClient(object):
         :rtype: :class:`RiakMapReduce`
         """
         mr = mapreduce.RiakMapReduce(self)
-        return apply(mr.index, args)
+        return mr.index(*args)
+
+    def get(self, obj, *args, **kw):
+        """
+        Fetches the content of a Riak object and returns the data
+
+        dI think this is a pointless thing to do, but it's part of
+        riak-python-client so who am I to argue
+        """
+        def data(robj):
+            return robj.get_data()
+        
+        return obj.reload(**kw).addCallback(data)
+
+    def put(self, obj, *args, **kw):
+        """
+        Stores an object
+        """
+
+        return obj.store(**kw)
 
     def map(self, *args):
         """
@@ -299,7 +326,7 @@ class RiakClient(object):
         :returns: RiakMapReduce
         """
         mr = mapreduce.RiakMapReduce(self)
-        return apply(mr.map, args)
+        return mr.map(*args)
 
     def reduce(self, *args):
         """
@@ -308,7 +335,7 @@ class RiakClient(object):
         :returns: RiakMapReduce
         """
         mr = mapreduce.RiakMapReduce(self)
-        return apply(mr.reduce, args)
+        return mr.reduce(*args)
 
     def solr(self):
         if self._solr is None:
@@ -316,6 +343,11 @@ class RiakClient(object):
 
         return self._solr
 
+    def delete(self, obj, rw=None, r=None, w=None, dw=None, pr=None, pw=None):
+        """
+        Delete an object
+        """
+        return obj.delete(rw=rw, r=r, w=w, dw=dw, pr=pr, pw=pw)
 
 if __name__ == "__main__":
     pass
