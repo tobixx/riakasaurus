@@ -21,7 +21,6 @@ from riakasaurus import riak
 
 RIAK_CLIENT_ID = 'TEST'
 BUCKET_PREFIX = 'riakasaurus.tests.'
-
 JAVASCRIPT_SUM = """
 function(v) {
   x = v.reduce(function(a,b){ return a + b }, 0);
@@ -61,7 +60,7 @@ class Tests(unittest.TestCase):
         """Get an object that does not exist, then set_data and save it """
         log.msg("*** set_data_empty")
 
-        obj = yield self.bucket.get("foo1") 
+        obj = yield self.bucket.get("foo1")
 
         self.assertEqual(obj.exists(), False)
         self.assertEqual(obj.get_data(), None)
@@ -69,9 +68,9 @@ class Tests(unittest.TestCase):
         obj.set_data('bar1')
         yield obj.store()
 
-        
         self.assertEqual(obj.exists(), True)
-        self.assertEqual(obj.get_data(), "bar1")
+        # We get unicode from .get_data() because the content type is JSON.
+        self.assertEqual(obj.get_data(), u"bar1")
         log.msg("done set_data_empty")
 
     @defer.inlineCallbacks
@@ -83,14 +82,16 @@ class Tests(unittest.TestCase):
         yield obj.store()
 
         self.assertEqual(obj.exists(), True)
-        self.assertEqual(obj.get_data(), "test1")
+        # We get unicode from .get_data() because the content type is JSON.
+        self.assertEqual(obj.get_data(), u"test1")
 
         obj.set_data('bar1')
         yield obj.store()
 
         obj = yield self.bucket.get("foo1")
         self.assertEqual(obj.exists(), True)
-        self.assertEqual(obj.get_data(), "bar1")
+        # We get unicode from .get_data() because the content type is JSON.
+        self.assertEqual(obj.get_data(), u"bar1")
 
         yield obj.delete()
 
@@ -109,7 +110,7 @@ class Tests(unittest.TestCase):
         yield obj1.store()
 
         keys = yield self.bucket.list_keys()
-        self.assertEqual([u"foo1", u"foo2"], sorted(keys))
+        self.assertEqual(["foo1", "foo2"], sorted(keys))
 
     @defer.inlineCallbacks
     def test_purge_keys(self):
@@ -147,7 +148,8 @@ class Tests(unittest.TestCase):
         self.assertEqual(obj1.exists(), True)
         self.assertEqual(obj1.get_bucket().get_name(), self.bucket_name)
         self.assertEqual(obj1.get_key(), 'blue_foo1')
-        self.assertEqual(obj1.get_data(), data)
+        # We get unicode from .get_data() because the content type is JSON.
+        self.assertEqual(obj1.get_data(), u'blueprint')
         log.msg('done store_and_get')
 
     @defer.inlineCallbacks
@@ -348,5 +350,3 @@ class Tests(unittest.TestCase):
         self.assertTrue(mk1_lc in metas)
         self.assertTrue(metas[mk1_lc] == meta_data)
         log.msg('done meta_data_simple')
-
-
