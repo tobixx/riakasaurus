@@ -1,122 +1,33 @@
 from zope.interface import implements
 
 from twisted.protocols.basic import LineReceiver
-LineReceiver.MAX_LENGTH = 1024*1024*64
+LineReceiver.MAX_LENGTH = 1024 * 1024 * 64
 
-from twisted.internet import defer, reactor, protocol
+from twisted.internet import defer, reactor, protocol, error
 from twisted.web.http_headers import Headers
+from twisted.web.client import Agent
 from twisted.web.iweb import IBodyProducer
-
-from distutils.version import StrictVersion
-
-import urllib
-import re, csv
-from cStringIO import StringIO
-
-from xml.etree import ElementTree
+from twisted.python import log
 
 # MD_ resources
 from riakasaurus.metadata import *
-from twisted.web.client import Agent
-
 
 from riakasaurus.riak_index_entry import RiakIndexEntry
 from riakasaurus.mapreduce import RiakLink
+from riakasaurus.transport import transport
+from riakasaurus import exceptions
+
+from distutils.version import LooseVersion
+from cStringIO import StringIO
+from xml.etree import ElementTree
+
+import urllib
+import re
+import csv
+import time
 
 MAX_LINK_HEADER_SIZE = 8192 - 8
 
-versions = {
-    1: StrictVersion("1.0.0"),
-    1.1: StrictVersion("1.1.0"),
-    1.2: StrictVersion("1.2.0")
-    }
-
-
-class FeatureDetection(object):
-    _s_version = None
-
-    def _server_version(self):
-        """
-        Gets the server version from the server. To be implemented by
-        the individual transport class.
-        :rtype string
-        """
-        raise NotImplementedError
-
-    @defer.inlineCallbacks
-    def phaseless_mapred(self):
-        """
-        Whether MapReduce requests can be submitted without phases.
-        :rtype bool
-        """
-        d = yield self.server_version()
-        defer.returnValue(d >= versions[1.1])
-
-    @defer.inlineCallbacks
-    def pb_indexes(self):
-        """
-        Whether secondary index queries are supported over Protocol
-        Buffers
-
-        :rtype bool
-        """
-        d = yield self.server_version()
-        defer.returnValue(d >= versions[1.2])
-
-    @defer.inlineCallbacks
-    def pb_search(self):
-        """
-        Whether search queries are supported over Protocol Buffers
-        :rtype bool
-        """
-        d = yield self.server_version()
-        defer.returnValue(d >= versions[1.2])
-
-    @defer.inlineCallbacks
-    def pb_conditionals(self):
-        """
-        Whether conditional fetch/store semantics are supported over
-        Protocol Buffers
-        :rtype bool
-        """
-        d = yield self.server_version()
-        defer.returnValue(d >= versions[1])
-
-    @defer.inlineCallbacks
-    def quorum_controls(self):
-        """
-        Whether additional quorums and FSM controls are available,
-        e.g. primary quorums, basic_quorum, notfound_ok
-        :rtype bool
-        """
-        d = yield self.server_version()
-        defer.returnValue(d >= versions[1])
-
-    @defer.inlineCallbacks
-    def tombstone_vclocks(self):
-        """
-        Whether 'not found' responses might include vclocks
-        :rtype bool
-        """
-        d = yield self.server_version()
-        defer.returnValue(d >= versions[1])
-
-    @defer.inlineCallbacks
-    def pb_head(self):
-        """
-        Whether partial-fetches (vclock and metadata only) are
-        supported over Protocol Buffers
-        :rtype bool
-        """
-        d = yield self.server_version()
-        defer.returnValue(d >= versions[1])
-
-    @defer.inlineCallbacks
-    def server_version(self):
-        if not self._s_version:
-            self._s_version = yield self._server_version()
-
-        defer.returnValue(StrictVersion(self._s_version))
 
 class BodyReceiver(protocol.Protocol):
     """ Simple buffering consumer for body objects """
@@ -130,6 +41,7 @@ class BodyReceiver(protocol.Protocol):
     def connectionLost(self, reason):
         self.buffer.seek(0)
         self.finished.callback(self.buffer)
+
 
 class StringProducer(object):
     """
@@ -151,7 +63,63 @@ class StringProducer(object):
     def stopProducing(self):
         pass
 
-class HTTPTransport(FeatureDetection):
+
+class XMLSearchResult(object):
+    # Match tags that are document fields
+    fieldtags = ['str', 'int', 'date']
+
+    def __init__(self):
+        # Results
+        self.num_found = 0
+        self.max_score = 0.0
+        self.docs = []
+
+        # Parser state
+        self.currdoc = None
+        self.currfield = None
+        self.currvalue = None
+
+    def start(self, tag, attrib):
+        if tag == 'result':
+            self.num_found = int(attrib['numFound'])
+            self.max_score = float(attrib['maxScore'])
+        elif tag == 'doc':
+            self.currdoc = {}
+        elif tag in self.fieldtags and self.currdoc is not None:
+            self.currfield = attrib['name']
+
+    def end(self, tag):
+        if tag == 'doc' and self.currdoc is not None:
+            self.docs.append(self.currdoc)
+            self.currdoc = None
+        elif tag in self.fieldtags and self.currdoc is not None:
+            if tag == 'int':
+                self.currvalue = int(self.currvalue)
+            self.currdoc[self.currfield] = self.currvalue
+            self.currfield = None
+            self.currvalue = None
+
+    def data(self, data):
+        if self.currfield:
+            # riak_solr_output adds NL + 6 spaces
+            data = data.rstrip()
+            if self.currvalue:
+                self.currvalue += data
+            else:
+                self.currvalue = data
+
+    def close(self):
+        return {
+            'num_found': self.num_found,
+            'max_score': self.max_score,
+            'docs': self.docs
+        }
+
+
+class HTTPTransport(transport.FeatureDetection):
+
+    implements(transport.ITransport)
+
     """ HTTP Transport for Riak """
     def __init__(self, client, prefix=None):
         if prefix:
@@ -178,6 +146,12 @@ class HTTPTransport(FeatureDetection):
         else:
             return haveBody(StringIO(""))
 
+    def abort_request(self, agent):
+        """Called to abort request on timeout"""
+        if not agent.called:
+            t = self.client.request_timeout
+            agent.cancel()
+
     def http_request(self, method, path, headers={}, body=None):
         url = "http://%s:%s%s" % (self.host, self.port, path)
 
@@ -188,6 +162,7 @@ class HTTPTransport(FeatureDetection):
             else:
                 h[k.lower()] = v
 
+        # content-type must always be set
         if not 'content-type' in h.keys():
             h['content-type'] = ['application/json']
 
@@ -196,11 +171,34 @@ class HTTPTransport(FeatureDetection):
         else:
             bodyProducer = None
 
-        return Agent(reactor).request(
-                method, str(url), Headers(h), bodyProducer
-            ).addCallback(self.http_response)
+        requestAgent = Agent(reactor).request(
+                method, str(url), Headers(h), bodyProducer)
 
-    def build_rest_path(self, bucket=None, key=None, params=None, prefix=None) :
+        if self.client.request_timeout:
+            # Start request timer
+            t = self.client.request_timeout
+            timeout = reactor.callLater(t,
+                self.abort_request, requestAgent)
+
+            def timeoutProxy(request):
+                if timeout.active():
+                    timeout.cancel()
+                return self.http_response(request)
+
+            def requestAborted(failure):
+                failure.trap(defer.CancelledError,
+                             error.ConnectingCancelledError)
+
+                raise exceptions.RequestTimeout(
+                    "Request took longer than %s seconds" % t)
+
+            requestAgent.addCallback(timeoutProxy).addErrback(requestAborted)
+        else:
+            requestAgent.addCallback(self.http_response)
+
+        return requestAgent
+
+    def build_rest_path(self, bucket=None, key=None, params=None, prefix=None):
         """
         Given a RiakClient, RiakBucket, Key, LinkSpec, and Params,
         construct and return a URL.
@@ -222,8 +220,12 @@ class HTTPTransport(FeatureDetection):
             s = ''
             for key in params.keys():
                 if params[key] is not None:
-                    if s != '': s += '&'
-                    s += urllib.quote_plus(key) + '=' + urllib.quote_plus(str(params[key]))
+                    if s != '':
+                        s += '&'
+
+                    s += urllib.quote_plus(key) + '='
+                    s += urllib.quote_plus(str(params[key]))
+
             path += '?' + s
 
         # Return.
@@ -237,9 +239,11 @@ class HTTPTransport(FeatureDetection):
 
     @defer.inlineCallbacks
     def get_keys(self, bucket):
-        params = {'props' : 'True', 'keys' : 'true'}
+        params = {
+            'props': 'True',
+            'keys': 'true'
+        }
         url = self.build_rest_path(bucket, params=params)
-
 
         headers, encoded_props = yield self.http_request('GET', url)
 
@@ -260,7 +264,8 @@ class HTTPTransport(FeatureDetection):
         content = self.encodeJson({'props': props})
 
         #Run the request...
-        headers, response = yield self.http_request('PUT', url, headers, content)
+        headers, response = yield self.http_request(
+            'PUT', url, headers, content)
 
         # Handle the response...
         if (response is None):
@@ -295,7 +300,9 @@ class HTTPTransport(FeatureDetection):
         Gets performance statistics and server information
         """
         # TODO: use resource detection
-        response = yield self.http_request('GET', '/stats', {'Accept':'application/json'})
+        response = yield self.http_request(
+            'GET', '/stats', {'Accept': 'application/json'})
+
         if response[0]['http_code'] is 200:
             defer.returnValue(self.decodeJson(response[1]))
         else:
@@ -321,22 +328,26 @@ class HTTPTransport(FeatureDetection):
         Gets a JSON mapping of server-side resource names to paths
         :rtype dict
         """
-        response = yield self.http_request('GET', '/', {'Accept':'application/json'})
+        response = yield self.http_request(
+            'GET', '/', {'Accept': 'application/json'})
+
         if response[0]['http_code'] is 200:
             defer.returnValue(self.decodeJson(response[1]))
         else:
             defer.returnValue({})
 
     @defer.inlineCallbacks
-    def get(self, robj, r = None, pr = None, vtag = None) :
+    def get(self, robj, r=None, pr=None, vtag=None):
         """
         Get a bucket/key from the server
         """
         # We could detect quorum_controls here but HTTP ignores
         # unknown flags/params.
-        params = {'r' : r, 'pr': pr}
+        params = {'r': r, 'pr': pr}
+
         if vtag is not None:
             params['vtag'] = vtag
+
         url = self.build_rest_path(robj.get_bucket(), robj.get_key(),
                                    params=params)
         response = yield self.http_request('GET', url)
@@ -345,12 +356,13 @@ class HTTPTransport(FeatureDetection):
         )
 
     @defer.inlineCallbacks
-    def head(self, robj, r = None, pr = None, vtag = None) :
+    def head(self, robj, r=None, pr=None, vtag=None):
         """
         Get metadata for a bucket/key from the server, basically
         the same as get() but retrieves no data
         """
-        params = {'r' : r, 'pr': pr}
+        params = {'r': r, 'pr': pr}
+
         if vtag is not None:
             params['vtag'] = vtag
         url = self.build_rest_path(robj.get_bucket(), robj.get_key(),
@@ -360,16 +372,22 @@ class HTTPTransport(FeatureDetection):
         defer.returnValue(
             self.parse_body(response, [200, 300, 404])
         )
-        
-        
-    def put(self, robj, w = None, dw = None, pw = None, return_body = True, if_none_match=False):
+
+    def put(self, robj, w=None, dw=None, pw=None, return_body=True,
+            if_none_match=False):
         """
         Serialize put request and deserialize response
         """
         # We could detect quorum_controls here but HTTP ignores
         # unknown flags/params.
-        params = {'returnbody' : str(return_body).lower(), 'w' : w, 'dw' : dw, 'pw' : pw }
-        url = self.build_rest_path(bucket=robj.get_bucket(), key=robj.get_key(),
+        params = {
+            'returnbody': str(return_body).lower(),
+            'w': w,
+            'dw': dw,
+            'pw': pw
+        }
+        url = self.build_rest_path(bucket=robj.get_bucket(),
+                                   key=robj.get_key(),
                                    params=params)
         headers = self.build_put_headers(robj)
 
@@ -378,7 +396,8 @@ class HTTPTransport(FeatureDetection):
         if if_none_match:
             headers["If-None-Match"] = "*"
         content = robj.get_encoded_data()
-        return self.do_put(url, headers, content, return_body, key=robj.get_key())
+        return self.do_put(
+            url, headers, content, return_body, key=robj.get_key())
 
     @defer.inlineCallbacks
     def do_put(self, url, headers, content, return_body=False, key=None):
@@ -394,11 +413,17 @@ class HTTPTransport(FeatureDetection):
             defer.returnValue(None)
 
     @defer.inlineCallbacks
-    def put_new(self, robj, w=None, dw=None, pw=None, return_body=True, if_none_match=False):
+    def put_new(self, robj, w=None, dw=None, pw=None, return_body=True,
+                if_none_match=False):
         """Put a new object into the Riak store, returning its (new) key."""
         # We could detect quorum_controls here but HTTP ignores
         # unknown flags/params.
-        params = {'returnbody' : str(return_body).lower(), 'w' : w, 'dw' : dw, 'pw' : pw}
+        params = {
+            'returnbody': str(return_body).lower(),
+            'w': w,
+            'dw': dw,
+            'pw': pw
+        }
         url = self.build_rest_path(bucket=robj.get_bucket(), params=params)
         headers = self.build_put_headers(robj)
         # TODO: use a more general 'prevent_stale_writes' semantics,
@@ -409,7 +434,7 @@ class HTTPTransport(FeatureDetection):
         response = yield self.http_request('POST', url, headers, content)
         location = response[0]['location']
         idx = location.rindex('/')
-        key = location[idx+1:]
+        key = location[idx + 1:]
         if return_body:
             vclock, [(metadata, data)] = self.parse_body(response, [201])
             defer.returnValue((key, vclock, metadata))
@@ -418,13 +443,14 @@ class HTTPTransport(FeatureDetection):
             defer.returnValue((key, None, None))
 
     @defer.inlineCallbacks
-    def delete(self, robj, rw=None, r = None, w = None, dw = None, pr = None, pw = None):
+    def delete(self, robj, rw=None, r=None, w=None, dw=None, pr=None,
+               pw=None):
         """
         Delete an object.
         """
         # We could detect quorum_controls here but HTTP ignores
         # unknown flags/params.
-        params = {'rw' : rw, 'r': r, 'w': w, 'dw': dw, 'pr': pr, 'pw': pw}
+        params = {'rw': rw, 'r': r, 'w': w, 'dw': dw, 'pr': pr, 'pw': pw}
         headers = {}
         url = self.build_rest_path(robj.get_bucket(), robj.get_key(),
                                    params=params)
@@ -458,7 +484,7 @@ class HTTPTransport(FeatureDetection):
         Get properties for a bucket
         """
         # Run the request...
-        params = {'props' : 'True', 'keys' : 'False'}
+        params = {'props': 'True', 'keys': 'False'}
         url = self.build_rest_path(bucket, params=params)
         response = yield self.http_request('GET', url)
 
@@ -471,16 +497,35 @@ class HTTPTransport(FeatureDetection):
             raise Exception('Error getting bucket properties.')
 
     @defer.inlineCallbacks
+    def reset_bucket_props(self, bucket):
+        """
+        Reset properties for a bucket
+        """
+        rbp = yield self.has_reset_bucket_props_api()
+        if not rbp:
+            raise Exception('Resetting of bucket properties is '
+                            'not supported by this Riak node')
+
+        # Run the request...
+        url = self.build_rest_path(bucket, 'props', prefix='buckets')
+        response = yield self.http_request('DELETE', url)
+
+        headers = response[0]
+        if headers['http_code'] != 204:
+            raise Exception('Error resetting bucket properties.')
+
+    @defer.inlineCallbacks
     def mapred(self, inputs, query, timeout=None):
         """
         Run a MapReduce query.
         """
         plm = yield self.phaseless_mapred()
         if not plm and (query is None or len(query) is 0):
-            raise Exception('Phase-less MapReduce is not supported by this Riak node')
+            raise Exception('Phase-less MapReduce is not supported '
+                            'by this Riak node')
 
         # Construct the job, optionally set the timeout...
-        job = {'inputs':inputs, 'query':query}
+        job = {'inputs': inputs, 'query': query}
         if timeout is not None:
             job['timeout'] = timeout
 
@@ -494,8 +539,10 @@ class HTTPTransport(FeatureDetection):
         # Make sure the expected status code came back...
         status = response[0]['http_code']
         if status != 200:
-            raise Exception('Error running MapReduce operation. Headers: %s Body: %s' %
-                            (repr(response[0]),repr(response[1])))
+            raise Exception(
+                'Error running MapReduce operation. Headers: %s Body: %s' %
+                (repr(response[0]), repr(response[1]))
+            )
 
         result = self.decodeJson(response[1])
         defer.returnValue(result)
@@ -524,7 +571,7 @@ class HTTPTransport(FeatureDetection):
         if index is None:
             index = 'search'
 
-        options = {'q':query, 'wt':'json'}
+        options = {'q': query, 'wt': 'json'}
         if 'op' in params:
             op = params.pop('op')
             options['q.op'] = op
@@ -545,7 +592,11 @@ class HTTPTransport(FeatureDetection):
     def check_http_code(self, response, expected_statuses):
         status = response[0]['http_code']
         if not status in expected_statuses:
-            m = 'Expected status ' + str(expected_statuses) + ', received ' + str(status) + ' : ' + response[1]
+            m = 'Expected status %s, received %s : %s' % (
+                str(expected_statuses),
+                str(status),
+                response[1]
+            )
             raise Exception(m)
 
     def parse_body(self, response, expected_statuses):
@@ -594,15 +645,17 @@ class HTTPTransport(FeatureDetection):
             elif header == 'charset':
                 metadata[MD_CHARSET] = value
             elif header == 'content-encoding':
-                metadata[MD_CTYPE] = value
+                metadata[MD_ENCODING] = value
             elif header == 'etag':
                 metadata[MD_VTAG] = value
-            elif header =='link':
+            elif header == 'link':
                 self.parse_links(links, headers['link'])
             elif header == 'last-modified':
                 metadata[MD_LASTMOD] = value
             elif header.startswith('x-riak-meta-'):
-                metadata[MD_USERMETA][header.replace('x-riak-meta-', '')] = value
+                metadata[MD_USERMETA][
+                    header.replace('x-riak-meta-', '')
+                ] = value
             elif header.startswith('x-riak-index-'):
                 field = header.replace('x-riak-index-', '')
                 reader = csv.reader([value], skipinitialspace=True)
@@ -638,8 +691,15 @@ class HTTPTransport(FeatureDetection):
         """
         for linkHeader in linkHeaders.strip().split(','):
             linkHeader = linkHeader.strip()
-            matches = re.match("</([^/]+)/([^/]+)/([^/]+)>; ?riaktag=\"([^\']+)\"", linkHeader) or \
-                re.match("</(buckets)/([^/]+)/keys/([^/]+)>; ?riaktag=\"([^\']+)\"", linkHeader)
+
+            linktag = re.compile(
+                "</([^/]+)/([^/]+)/([^/]+)>; ?riaktag=\"([^\']+)\"")
+
+            bucket = re.compile(
+                "</(buckets)/([^/]+)/keys/([^/]+)>; ?riaktag=\"([^\']+)\"")
+
+            matches = linktag.match(linkHeader) or bucket.match(linkHeader)
+
             if matches is not None:
                 link = RiakLink(urllib.unquote_plus(matches.group(2)),
                                 urllib.unquote_plus(matches.group(3)),
@@ -656,7 +716,9 @@ class HTTPTransport(FeatureDetection):
                 if len(current_header + header) > MAX_LINK_HEADER_SIZE:
                     current_header = ''
 
-                if current_header != '': header = ', ' + header
+                if current_header != '':
+                    header = ', ' + header
+
                 current_header += header
 
             headers['Link'] = current_header
@@ -668,10 +730,13 @@ class HTTPTransport(FeatureDetection):
 
         return self.http_request('GET', url)
 
-    def store_file(self, key, content_type="application/octet-stream", content=None):
+    def store_file(self, key, content_type="application/octet-stream",
+                   content=None):
         url = self.build_rest_path(prefix='luwak', key=key)
-        headers = {'Content-Type' : content_type,
-                   'X-Riak-ClientId' : self._client_id}
+        headers = {
+            'Content-Type': content_type,
+            'X-Riak-ClientId': self._client_id
+        }
 
         return self.do_put(url, headers, content, key=key)
 
@@ -691,13 +756,16 @@ class HTTPTransport(FeatureDetection):
         response = yield self.http_request('DELETE', url)
         self.parse_body(response, [204, 404])
 
-    def post_request(self, uri=None, body=None, params=None, content_type="application/json"):
+    def post_request(self, uri=None, body=None, params=None,
+                     content_type="application/json"):
         uri = self.build_rest_path(prefix=uri, params=params)
-        return self.http_request('POST', uri, {'Content-Type': content_type}, body)
+        return self.http_request(
+            'POST', uri, {'Content-Type': content_type}, body)
 
     # Utility functions used by Riak library.
 
-    def build_rest_path(self, bucket=None, key=None, params=None, prefix=None) :
+    def build_rest_path(self, bucket=None, key=None, params=None,
+                        prefix=None):
         """
         Given a RiakClient, RiakBucket, Key, LinkSpec, and Params,
         construct and return a URL.
@@ -719,8 +787,12 @@ class HTTPTransport(FeatureDetection):
             s = ''
             for key in params.keys():
                 if params[key] is not None:
-                    if s != '': s += '&'
-                    s += urllib.quote_plus(key) + '=' + urllib.quote_plus(str(params[key]))
+                    if s != '':
+                        s += '&'
+                    s += "%s=%s" % (
+                        urllib.quote_plus(key),
+                        urllib.quote_plus(str(params[key]))
+                    )
             path += '?' + s
 
         # Return.
@@ -730,9 +802,11 @@ class HTTPTransport(FeatureDetection):
         """Build the headers for a POST/PUT request."""
 
         # Construct the headers...
-        headers = {'Accept' : 'text/plain, */*; q=0.5',
-                   'Content-Type' : robj.get_content_type(),
-                   'X-Riak-ClientId' : self._client_id}
+        headers = {
+            'Accept': 'text/plain, */*; q=0.5',
+            'Content-Type': robj.get_content_type(),
+            'X-Riak-ClientId': self._client_id
+        }
 
         # Add the vclock if it exists...
         if robj.vclock() is not None:
@@ -778,16 +852,17 @@ class HTTPTransport(FeatureDetection):
         same return value
         """
         target = XMLSearchResult()
-        parser = ElementTree.XMLParser(target = target)
+        parser = ElementTree.XMLParser(target=target)
         parser.feed(xml)
         return parser.close()
 
     @classmethod
     def build_headers(cls, headers):
-        return ['%s: %s' % (header, value) for header, value in headers.iteritems()]
+        return ['%s: %s' % (header, value)
+                for header, value in headers.iteritems()]
 
     @classmethod
-    def parse_http_headers(cls, headers) :
+    def parse_http_headers(cls, headers):
         """
         Parse an HTTP Header string into an asssociative array of
         response headers.
@@ -796,7 +871,8 @@ class HTTPTransport(FeatureDetection):
         fields = headers.split("\n")
         for field in fields:
             matches = re.match("([^:]+):(.+)", field)
-            if matches is None: continue
+            if matches is None:
+                continue
             key = matches.group(1).lower()
             value = matches.group(2).strip()
             if key in retVal.keys():
@@ -807,55 +883,3 @@ class HTTPTransport(FeatureDetection):
             else:
                 retVal[key] = value
         return retVal
-
-class XMLSearchResult(object):
-    # Match tags that are document fields
-    fieldtags = ['str', 'int', 'date']
-
-    def __init__(self):
-        # Results
-        self.num_found = 0
-        self.max_score = 0.0
-        self.docs = []
-
-        # Parser state
-        self.currdoc = None
-        self.currfield = None
-        self.currvalue = None
-
-    def start(self, tag, attrib):
-        if tag == 'result':
-            self.num_found = int(attrib['numFound'])
-            self.max_score = float(attrib['maxScore'])
-        elif tag == 'doc':
-            self.currdoc = {}
-        elif tag in self.fieldtags and self.currdoc is not None:
-            self.currfield = attrib['name']
-
-    def end(self, tag):
-        if tag == 'doc' and self.currdoc is not None:
-            self.docs.append(self.currdoc)
-            self.currdoc = None
-        elif tag in self.fieldtags and self.currdoc is not None:
-            if tag == 'int':
-                self.currvalue = int(self.currvalue)
-            self.currdoc[self.currfield] = self.currvalue
-            self.currfield = None
-            self.currvalue = None
-
-    def data(self, data):
-        if self.currfield:
-            # riak_solr_output adds NL + 6 spaces
-            data = data.rstrip()
-            if self.currvalue:
-                self.currvalue += data
-            else:
-                self.currvalue = data
-
-    def close(self):
-        return {'num_found':self.num_found,
-                'max_score':self.max_score,
-                'docs': self.docs }
-
-
-

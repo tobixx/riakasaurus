@@ -9,7 +9,7 @@ import json
 import random
 from twisted.trial import unittest
 from twisted.python import log
-from twisted.internet import defer
+from twisted.internet import defer, reactor
 
 VERBOSE = False
 
@@ -28,6 +28,12 @@ function(v) {
   return [x];
 }
 """
+
+
+def sleep(secs):
+    d = defer.Deferred()
+    reactor.callLater(secs, d.callback, None)
+    return d
 
 
 def randint():
@@ -132,6 +138,7 @@ class Tests(unittest.TestCase):
         yield self.client.solr().add(self.bucket_name,
                                      {"id": "dizzy", "username": "dizzy"},
                                      {"id": "russell", "username": "russell"})
+        yield sleep(2)  # Eventual consistency is annoying
         results = yield self.client.solr().search(self.bucket_name,
                                                   "username:russell OR"
                                                   " username:dizzy")
@@ -162,4 +169,3 @@ class Tests(unittest.TestCase):
                                                   " username:dizzy")
         # This test fails at eventual consistency...
         #self.assertEquals(0, len(results["docs"]))
-
