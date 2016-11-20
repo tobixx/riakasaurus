@@ -129,7 +129,7 @@ class HTTPTransport(transport.FeatureDetection):
         self.host = client._host
         self.port = client._port
         self.client = client
-        self._client_id = None
+        self._client_id = client._client_id
 
     def http_response(self, response):
         def haveBody(body):
